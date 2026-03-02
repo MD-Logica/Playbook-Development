@@ -1,0 +1,90 @@
+# PLAYBOOKMD — P3-R4b: STANDARDIZED TAGS
+
+## PROMPT REFERENCE
+Code: P3-R4b | Single job: replace free-text tags with predefined tag library
+Do not change anything else. Run on MEDIUM AUTONOMY.
+
+---
+
+## CONTEXT
+
+Free-text tags cannot be reported on. If one user types "VIP" and another types "vip", those are different values. All tags must come from a predefined library so they are reportable and consistent.
+
+---
+
+## STEP 1: CREATE PRACTICETAG MODEL
+
+```prisma
+model PracticeTag {
+  id         String   @id @default(cuid())
+  practiceId String
+  name       String
+  color      String   @default("gray")
+  emoji      String?
+  createdAt  DateTime @default(now())
+  practice   Practice @relation(fields: [practiceId], references: [id])
+
+  @@unique([practiceId, name])
+}
+```
+
+Run migration.
+
+Seed the following default tags for every practice:
+
+| Name | Color | Emoji |
+|------|-------|-------|
+| VIP | emerald | 👑 |
+| Discharged | red | ⛔ |
+| High Value | amber | 💎 |
+| Financing | blue | (none) |
+| Referral | purple | (none) |
+| Cold Lead | gray | (none) |
+| Do Not Contact | red | 🚫 |
+
+---
+
+## STEP 2: UPDATE TAG UI IN PANEL AND PATIENT PROFILE
+
+### Adding a tag
+- "+ Tag" button opens a **dropdown** (not a text input)
+- Dropdown shows all PracticeTags for this practice that aren't already applied
+- Each option renders as a pill preview: emoji + name + color
+- Clicking an option adds it to `Patient.tags` array
+- Saves via `PATCH /api/patients/[id]/tags`
+- Dropdown closes after selection
+
+### Removing a tag
+- Hover over any tag pill: show × on right side
+- Click × removes tag from array
+- Saves via same PATCH endpoint
+- Optimistic UI — tag disappears immediately
+
+### Tag rendering (pill colors by name):
+- VIP: `#D1FAE5` bg, `#065F46` text, 👑 prefix
+- Discharged: `#FEE2E2` bg, `#991B1B` text, ⛔ prefix
+- Do Not Contact: `#FEE2E2` bg, `#991B1B` text, 🚫 prefix
+- High Value: `#FEF3C7` bg, `#92400E` text, 💎 prefix
+- Financing: `#DBEAFE` bg, `#1E40AF` text
+- Referral: `#EDE9FE` bg, `#5B21B6` text
+- Cold Lead: `var(--bg-tertiary)` bg, `--text-secondary` text
+- Any unrecognized tag: gray fallback (backward compatible)
+
+### API: add tag library endpoint
+`GET /api/practices/tags` — returns all PracticeTags for the current practice
+Used to populate the dropdown.
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] PracticeTag model created and migrated
+- [ ] Default 7 tags seeded for each practice
+- [ ] "+ Tag" opens dropdown (not text input)
+- [ ] Dropdown shows pill previews of available tags
+- [ ] Selecting a tag adds it and saves to DB
+- [ ] Hover × removes tag and saves to DB
+- [ ] All 7 tags render with correct colors and emojis
+- [ ] Unrecognized tags fall back to gray gracefully
+- [ ] GET /api/practices/tags endpoint works
+- [ ] No TypeScript errors, no console errors

@@ -1,0 +1,132 @@
+# PP-A1 — SETTINGS SHELL + TAGS MANAGED LIST
+
+## Prompt Order & Dependencies
+**Run this prompt first.** PP-A2 (Lead Sources + Procedure Types) depends on the Settings sidebar nav and Tags sub-page being built here. Do not run PP-A2 until PP-A1 is complete and verified working.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality that is unrelated to this task.
+- Only modify or create files that are necessary to implement what is described below.
+- When complete, run a full check: no TypeScript errors, no broken imports, no console errors on page load, all API routes return expected responses.
+- Do not mark this task complete until you have verified the Settings page loads, the sidebar nav renders correctly, and the Tags sub-page can create, edit, archive, restore, and display tags without errors.
+
+---
+
+## Overview
+Build the Settings section of PlaybookMD. This includes: (1) a persistent left sidebar nav that will house all future settings categories, (2) the Managed Lists category with Tags as the first fully functional sub-page, and (3) a clean "Coming Soon" state for all other sidebar nav items.
+
+This must feel intentional, elegant, and self-explanatory. A first-time user should be able to navigate and use Settings without any training or documentation.
+
+---
+
+## 1. SETTINGS LAYOUT — SIDEBAR NAV
+
+### Structure
+Replace the current Settings placeholder page ("Your practice is configured your way. Coming soon.") with a two-column layout:
+- **Left:** Fixed sidebar nav (~220px wide)
+- **Right:** Content area that renders the selected sub-page
+
+### Sidebar Nav Items (in order)
+```
+Practice
+Managed Lists
+  └ Tags
+  └ Lead Sources
+  └ Procedure Types
+Pipeline
+Automation
+Users & Permissions
+Integrations
+```
+
+Tags, Lead Sources, and Procedure Types are nested under Managed Lists as sub-items. Managed Lists itself is a collapsible section header, not a clickable page.
+
+### Sidebar Behavior
+- Active item is visually highlighted (accent color, not just bold)
+- Managed Lists section is expanded by default when any of its children are active
+- Clicking a Coming Soon item renders a clean "Coming Soon" state in the content area — not a toast, not an alert. Centered icon, heading matching the section name, and a single line like "This section is on its way." Subtle, not dismissive.
+- On load, default selected item is Tags
+
+### Visual Design
+- Sidebar background subtly differentiated from main app background (slight shade difference or border-right)
+- Section headers like "Managed Lists" use small uppercase label style
+- Sub-items indented, slightly smaller than top-level items
+- Clean and minimal — no icons required unless they add meaningful clarity
+
+---
+
+## 2. TAGS MANAGED LIST — SUB-PAGE
+
+### Purpose
+Tags are labels applied to patient/contact records for segmentation and reporting. Staff select from predefined tags rather than typing freeform. All tags are reportable.
+
+### Page Header
+- Title: "Tags"
+- Subtitle: "Create and manage tags applied to patient records. Tags are used for segmentation and reporting."
+- Primary CTA button: "+ Add Tag" (top right)
+
+### Tag List Display
+Each tag displays as a table row with:
+- **Color swatch** — small filled circle showing assigned color
+- **Tag name**
+- **Status badge** — "Active" or "Archived" (only visible when Show Archived is toggled on)
+- **In Use count** — number of patient records this tag is applied to (e.g., "14 patients")
+- **Actions** — Edit (pencil icon), Archive (archive icon). No direct delete on active items.
+
+Default view shows only Active tags.
+
+### "Show Archived" Toggle
+- Positioned above the table, right-aligned
+- When on: archived tags appear with muted/greyed styling and an "Archived" badge
+- Archived tags show "Restore" action instead of "Archive"
+- Archived items also show "Delete Permanently" as a secondary destructive action (only on archived items, never on active ones)
+
+### Add / Edit Tag — Modal
+Fields:
+- **Tag Name** — text input, required, max 32 characters
+- **Color** — curated palette of 12 color circles, selectable. Selected color shows a checkmark or ring indicator. Palette: Slate, Red, Orange, Amber, Green, Teal, Cyan, Blue, Indigo, Violet, Pink, Rose
+- **Save** / **Cancel**
+
+Validation: Tag name must be unique (case-insensitive). Show inline error if duplicate.
+
+### Archive Behavior
+- If tag has 1+ patients: show confirmation dialog — "Archive [Tag Name]? It will no longer appear in tag pickers, but existing patient records will retain it and it will remain available in reports." Confirm: "Archive Tag"
+- If tag has 0 patients: archive immediately, no confirmation needed
+- Hard delete only available on archived items with 0 patient records
+
+### Empty State
+- Icon (tag or label), heading "No tags yet", body "Create your first tag to start organizing patient records.", inline "+ Add Tag" button
+
+### Seed Data
+Pre-seed these active tags on first load / migration (assign distinct palette colors automatically):
+VIP, PITA, Discharged, Surgical Candidate, Financing Needed, High Value, Recall Priority
+
+---
+
+## 3. TECHNICAL NOTES
+
+### Database
+**Tag model:** `id`, `name`, `color` (hex or palette key), `status` (ACTIVE | ARCHIVED), `practiceId`, `createdAt`, `updatedAt`
+**PatientTag join table:** `patientId`, `tagId`, `assignedAt`
+In Use count = PatientTag join count per tag.
+
+### API Routes
+- `GET /api/settings/tags` — fetch all tags for practice, filter by status param
+- `POST /api/settings/tags` — create tag
+- `PATCH /api/settings/tags/:id` — update name/color
+- `PATCH /api/settings/tags/:id/archive` — archive tag
+- `PATCH /api/settings/tags/:id/restore` — restore archived tag
+- `DELETE /api/settings/tags/:id` — permanent delete (only if archived AND 0 patient records)
+
+### Clerk Org Scoping
+All tag operations must be scoped to the current Clerk Organization (practiceId derived from org context), consistent with the Clerk Organizations migration already implemented.
+
+### Navigation
+If a Settings nav item does not already exist in the main app nav, add one now so Settings is accessible from anywhere in the app.
+
+---
+
+## Design Reminders
+- Clean, modern, and elegant — not generic or template-looking
+- Every element earns its place — no filler UI
+- First-time users should immediately understand what this section does and how to use it
+- Consistent with existing PlaybookMD design system (typography, spacing, button styles, modal patterns)

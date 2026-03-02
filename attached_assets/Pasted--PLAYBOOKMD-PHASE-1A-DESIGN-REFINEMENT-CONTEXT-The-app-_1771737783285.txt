@@ -1,0 +1,240 @@
+# PLAYBOOKMD — PHASE 1A DESIGN REFINEMENT
+
+---
+
+## CONTEXT
+
+The app shell and navigation have been built but the visual design is generic and does not match the PlaybookMD brand. This prompt is a surgical redesign of the existing layout — do not rebuild the structure or change any functionality. Only update the visual design, color system, typography, spacing, and microcopy. All navigation links, Clerk auth, Prisma data fetching, and routing must remain intact.
+
+---
+
+## THE PROBLEM WITH THE CURRENT DESIGN
+
+The current UI looks like a generic AI-generated SaaS template. Every element has equal visual weight, nothing feels intentional, and there is no brand personality. It does not reflect PlaybookMD's identity: a premium, confident, modern platform that makes legacy EMRs look obsolete. That gap needs to close completely in this phase.
+
+---
+
+## BRAND IDENTITY — INTERNALIZE THIS BEFORE TOUCHING ANY CODE
+
+PlaybookMD is **not** a medical software company. It is a revenue intelligence platform that happens to serve medical practices. The brand voice is confident, sharp, and irreverent toward legacy systems. The product should feel like it was built by people who think the entire EMR industry is a joke — and then actually built something better.
+
+**The visual target:** Linear.app met with a premium healthcare aesthetic. Dark, structured, precise. Every pixel intentional. Nothing that screams "medical software."
+
+---
+
+## DESIGN DIRECTION
+
+### Overall Layout
+- **Dark sidebar** (`#0A1628` — deep navy-black), white content area
+- This creates immediate visual separation and makes the emerald brand color pop
+- The sidebar is where the brand lives; the content area is where work happens
+
+### Color System — Replace ALL existing colors with these
+
+Define as CSS custom properties in `app/globals.css`. Remove all previous color variables.
+
+```css
+:root {
+  /* Brand */
+  --brand-primary: #10B981;        /* Emerald 500 — primary actions, active states */
+  --brand-secondary: #059669;      /* Emerald 600 — hover states */
+  --brand-deep: #064E3B;           /* Emerald 900 — dark accents, gradient end */
+  --brand-light: #D1FAE5;          /* Emerald 100 — subtle tints */
+  --brand-glow: rgba(16,185,129,0.15); /* Emerald glow for active states */
+
+  /* Sidebar (dark) */
+  --sidebar-bg: #0A1628;           /* Deep navy-black */
+  --sidebar-border: rgba(255,255,255,0.06);
+  --sidebar-text: rgba(255,255,255,0.65);
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-item-hover: rgba(255,255,255,0.06);
+  --sidebar-item-active: rgba(16,185,129,0.15);
+  --sidebar-icon-default: rgba(255,255,255,0.4);
+  --sidebar-icon-active: #10B981;
+  --sidebar-divider: rgba(255,255,255,0.08);
+
+  /* Content area (light) */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F9FAFB;
+  --bg-tertiary: #F3F4F6;
+
+  /* Text */
+  --text-primary: #111827;         /* Near black — headings */
+  --text-secondary: #374151;       /* Dark gray — body */
+  --text-muted: #6B7280;           /* Medium gray — metadata */
+  --text-subtle: #9CA3AF;          /* Light gray — placeholders */
+
+  /* Borders */
+  --border-default: #E5E7EB;
+  --border-strong: #D1D5DB;
+
+  /* Semantic */
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --info: #3B82F6;
+
+  /* Top bar */
+  --topbar-bg: #FFFFFF;
+  --topbar-border: #E5E7EB;
+}
+```
+
+### Typography
+- **Font:** `Geist` (already in Next.js) — use Geist Sans for UI, Geist Mono for any data/code
+- Apply globally via `layout.tsx` using Next.js font optimization
+- **Scale:**
+  - Page titles: 20px, weight 600, color `--text-primary`, letter-spacing -0.3px
+  - Section headings: 16px, weight 600, color `--text-primary`
+  - Body: 14px, weight 400, color `--text-secondary`
+  - Labels/metadata: 13px, weight 500, color `--text-muted`
+  - Tiny/captions: 12px, weight 400, color `--text-subtle`
+- Never use font-weight below 400
+
+---
+
+## SIDEBAR REDESIGN
+
+This is the most important visual element. Make it feel premium.
+
+### Logo Area
+- Height: 56px (matches top bar)
+- Padding: 0 16px
+- Display the SVG logo icon inline followed by "PlaybookMD" wordmark
+- Logo icon: the three stacked rectangles SVG with emerald gradient (embed directly as inline SVG)
+- Wordmark: "PlaybookMD" in white, font-size 15px, font-weight 600, letter-spacing -0.2px
+- The "MD" portion can be slightly lighter weight (400) to create typographic contrast
+- Bottom border: `1px solid var(--sidebar-divider)`
+
+### Navigation Items
+- Item height: 34px
+- Border radius: 6px
+- Padding: 0 10px
+- Margin: 1px 8px (horizontal margins create floating effect)
+- Default state: icon at `var(--sidebar-icon-default)`, label at `var(--sidebar-text)`, no background
+- Hover state: background `var(--sidebar-item-hover)`, icon slightly brighter, 150ms ease transition
+- Active state: background `var(--sidebar-item-active)`, icon `var(--sidebar-icon-active)` (emerald), label `var(--sidebar-text-active)` (white), no border or heavy indicator — the emerald icon IS the active indicator
+- Icon size: 15px
+- Label: 13px, font-weight 500
+- Gap between icon and label: 9px
+
+### Section Dividers
+- `1px solid var(--sidebar-divider)` with 6px vertical margin top and bottom
+- No section labels/headers — the groupings are self-evident
+
+### Sidebar Footer
+- Separated from nav by a divider
+- Padding: 12px 16px
+- Practice name: 11px, uppercase, letter-spacing 0.06em, color `rgba(255,255,255,0.35)` — subtle, not dominant
+- User name: 13px, weight 500, color `rgba(255,255,255,0.8)`
+- Avatar: 26px circle, emerald background (`#059669`), white initials, 11px font
+- Sign out: small icon button (`LogOut` from lucide, 14px), `rgba(255,255,255,0.3)` color, hover to `rgba(255,255,255,0.7)`, positioned to the right
+
+---
+
+## TOP BAR REDESIGN
+
+- Background: `#FFFFFF`
+- Bottom border: `1px solid var(--topbar-border)`
+- Height: 56px
+- Padding: 0 24px
+- Left: Page title — 16px, weight 600, `--text-primary`
+- Right side items with 12px gap between them:
+  - Search: pill-shaped input, 200px wide, border `1px solid var(--border-default)`, background `var(--bg-secondary)`, placeholder "Search..." in `--text-subtle`, 13px text, 6px border-radius, magnifier icon in `--text-subtle`
+  - Notification bell: 32px circle hover target, icon 16px in `--text-muted`
+  - User avatar: 28px circle, emerald background, white initials, 12px font — clicking does nothing for now
+
+---
+
+## CONTENT AREA
+
+- Background: `var(--bg-secondary)` (`#F9FAFB`) — not pure white, a very subtle off-white
+- Padding: 28px 32px
+- The content area should feel open and airy
+
+---
+
+## DASHBOARD PAGE REDESIGN
+
+Replace the current placeholder content with something that reflects the brand. This is NOT a full dashboard build (that's Phase 1B) — but it should not look like a placeholder either.
+
+Show the four stat cards that already exist (Patients: 15, Appointments: 33, Opportunities: 27, Quotes: 8) but redesign them properly:
+
+**Stat Cards:**
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border radius: 10px
+- Padding: 20px 24px
+- No shadow on default — only `box-shadow: 0 1px 3px rgba(0,0,0,0.06)` subtle lift
+- Label: 12px, weight 500, uppercase, letter-spacing 0.05em, `--text-muted`
+- Number: 28px, weight 700, `--text-primary`, letter-spacing -0.5px
+- Add a small relevant lucide icon top-right of each card in `--brand-light` background (20px square, 4px radius), icon in `--brand-primary` at 12px
+  - Patients → `Users` icon
+  - Appointments → `CalendarDays` icon
+  - Opportunities → `TrendingUp` icon
+  - Quotes → `FileText` icon
+- Cards in a 4-column grid with 16px gap
+
+**Page Header:**
+- Replace "Welcome back" with something brand-appropriate
+- Heading: "Good morning, [first name]." — pull from Clerk `useUser()`, 20px, weight 600
+- Subheading: "Here's what's happening at Luminary Aesthetics today." — 14px, `--text-muted`
+- 24px gap below header before cards
+
+---
+
+## PLACEHOLDER PAGES
+
+Update all placeholder pages to use the same design language:
+- Centered content, vertically and horizontally in the content area
+- The lucide icon for that section, 32px, `--brand-light` background (48px circle), icon in `--brand-primary`
+- Page name in 18px, weight 600, `--text-primary`
+- Subtext in 14px, `--text-muted` — make it on-brand:
+  - Patients: "Your patient roster lives here. Coming soon."
+  - Pipeline: "Your revenue pipeline. Every lead, every stage, every dollar. Coming soon."
+  - Appointments: "The schedule. Every provider, every slot, every day. Coming soon."
+  - Quotes: "Proposals that close deals. Coming soon."
+  - Invoices: "Revenue collected and outstanding. Coming soon."
+  - Reports: "The numbers that run your business. Coming soon."
+  - Settings: "Your practice, configured your way. Coming soon."
+
+---
+
+## MICROCOPY STANDARDS
+
+Every piece of text in the UI must sound human and on-brand. Audit and update:
+- Page titles in top bar: use simple, clean names — "Dashboard", "Patients", "Pipeline" etc.
+- No corporate filler text anywhere
+- Error states (if any): conversational, not technical
+- Loading states: "Loading..." is fine — don't over-engineer
+
+---
+
+## WHAT NOT TO CHANGE
+
+- Do not modify any Prisma queries or API routes
+- Do not modify Clerk configuration or auth flow
+- Do not change routing or page structure
+- Do not add new npm packages — work with what's installed
+- Do not change the navigation items or their order
+- Do not build any new functionality
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] CSS custom properties updated in `globals.css` with the full new color system
+- [ ] Sidebar background is dark (`#0A1628`), not gray
+- [ ] Sidebar logo shows inline SVG icon + "PlaybookMD" wordmark
+- [ ] Active nav item shows emerald icon, white label, subtle emerald background tint
+- [ ] Hover states on nav items are smooth and subtle
+- [ ] Sidebar footer shows practice name (muted), user name, avatar with initials, sign-out icon
+- [ ] Top bar is white with bottom border, shows page title left and search/bell/avatar right
+- [ ] Content area background is `#F9FAFB`, not white
+- [ ] Stat cards are redesigned with proper typography hierarchy and colored icons
+- [ ] Dashboard greeting uses first name from Clerk
+- [ ] All placeholder pages updated with on-brand copy and icon treatment
+- [ ] Geist font applied globally and rendering correctly
+- [ ] No generic placeholder text ("Lorem ipsum", "Coming soon" replaced with brand copy)
+- [ ] No TypeScript errors
+- [ ] No console errors

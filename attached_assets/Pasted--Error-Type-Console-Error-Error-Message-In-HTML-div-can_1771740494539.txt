@@ -1,0 +1,55 @@
+## Error Type
+Console Error
+
+## Error Message
+In HTML, <div> cannot be a descendant of <p>.
+This will cause a hydration error.
+
+  ...
+    <ErrorBoundary errorComponent={undefined} errorStyles={undefined} errorScripts={undefined}>
+      <LoadingBoundary loading={null}>
+        <HTTPAccessFallbackBoundary notFound={undefined} forbidden={undefined} unauthorized={undefined}>
+          <RedirectBoundary>
+            <RedirectErrorBoundary router={{...}}>
+              <InnerLayoutRouter url="/dashboard" tree={[...]} cacheNode={{lazyData:null, ...}} segmentPath={[...]}>
+                <SegmentViewNode type="page" pagePath="(dashboard...">
+                  <SegmentTrieNode>
+                  <DashboardPage>
+                    <DashboardClient firstName="Vahe">
+                      <div>
+                        <div>
+                        <div className="grid grid-..." style={{gap:"16px", ...}}>
+                          <div style={{...}}>
+                            <div className="flex items...">
+                              <div>
+                                <p>
+                                <Skeleton>
+>                               <p style={{fontSize:"12px",color:"var(--text...",marginTop:"6px"}}>
+                                  <Skeleton w="100px" h="14px">
+>                                   <div
+>                                     className="animate-pulse rounded"
+>                                     style={{width:"100px",height:"14px",backgroundColor:"var(--bg-t..."}}
+>                                   >
+                              ...
+                          ...
+                        ...
+                ...
+              ...
+
+
+
+    at div (<anonymous>:null:null)
+    at Skeleton (app/(dashboard)/dashboard/DashboardClient.tsx:56:5)
+    at DashboardClient (app/(dashboard)/dashboard/DashboardClient.tsx:258:19)
+    at DashboardPage (app/(dashboard)/dashboard/page.tsx:9:10)
+
+## Code Frame
+  54 | function Skeleton({ w, h }: { w: string; h: string }) {
+  55 |   return (
+> 56 |     <div
+     |     ^
+  57 |       className="animate-pulse rounded"
+  58 |       style={{
+  59 |         width: w,
+
+Next.js version: 15.5.12 (Webpack)

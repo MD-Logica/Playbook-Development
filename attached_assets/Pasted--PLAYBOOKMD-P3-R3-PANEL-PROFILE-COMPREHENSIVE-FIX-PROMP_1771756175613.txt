@@ -1,0 +1,598 @@
+# PLAYBOOKMD — P3-R3: PANEL + PROFILE COMPREHENSIVE FIX
+
+## PROMPT REFERENCE
+Code: P3-R3 | Phase 3, Revision 3
+Fixes incomplete work from P3-R1 and P3-R2.
+
+---
+
+## CRITICAL READING INSTRUCTIONS
+
+This prompt fixes a large number of missing features from previous attempts. Read the ENTIRE prompt before touching any code. Implement EVERY section. Do not skip anything. Do not mark something as done unless it is fully functional and visually correct. Run on MEDIUM AUTONOMY — follow specs exactly, do not invent alternatives.
+
+---
+
+## PRIORITY 1: FIX PATIENT PROFILE PAGE CRASH
+
+The patient profile page at `/patients/[id]` is crashing within 1-2 seconds of loading with a page unload warning. Fix this first before anything else.
+
+Likely causes to investigate:
+1. An unhandled Promise rejection in a data fetching function
+2. A Prisma query failing because a relation doesn't exist yet (Invoice, OpportunityForm, etc.)
+3. A missing null check causing a runtime error on undefined data
+4. An infinite re-render loop in a useEffect
+
+Fix approach:
+- Add try/catch error boundaries around ALL data fetching on the profile page
+- Every API call must handle errors gracefully — return empty arrays/objects rather than throwing
+- Add null safety to every data access: `patient?.name`, `opportunities?.length ?? 0`, etc.
+- If Invoice or OpportunityForm tables don't exist yet, the queries must return empty arrays rather than crashing
+- Add a top-level error boundary component so if the page does error, it shows a clean "Something went wrong — reload" message rather than a blank/crashing page
+
+Test: navigate to `/patients/[any-id]` — page must load and stay stable without crashing.
+
+---
+
+## PRIORITY 2: OPPORTUNITY PANEL — MISSING FEATURES
+
+### 2A: OPPORTUNITY TITLE — INLINE EDITING
+
+The opportunity title (procedure name / opportunity name) in the panel header must be inline-editable.
+
+Current state: displays as static text
+Required state: click-to-edit
+
+Implementation:
+- Display as text normally: 14px weight 600 `--text-primary`
+- On hover: show a subtle edit pencil icon `Pencil` (12px, `--text-muted`) to the right of the title — indicates it's editable
+- On click: text transforms into an `<input>` field, same font size and weight, auto-focused, full width
+- Input styling: no visible border on sides, only a bottom border `2px solid #10B981` — looks like underline editing, not a form field
+- On blur (click anywhere else) OR press Enter: save the value via `PATCH /api/opportunities/[id]` with `{ title: newValue }`
+- On Escape: cancel edit, revert to original value
+- Show a subtle "Saved ✓" flash in emerald for 1 second after successful save
+- If empty on blur: revert to original value, do not save empty string
+
+---
+
+### 2B: COORDINATOR + PROVIDER — INLINE EDITABLE DROPDOWNS
+
+Both fields must be editable from the panel, not view-only.
+
+Current state: shows coordinator name only, provider missing entirely
+Required state: both fields show, both are editable
+
+**Coordinator field:**
+- Label: "COORDINATOR" 10px uppercase `--text-muted`
+- Value: staff member name, 13px weight 600
+- On click: opens a dropdown select populated from practice staff/users
+- On select: saves via `PATCH /api/opportunities/[id]` with `{ coordinatorId: selectedUserId }`
+
+**Provider field:**
+- Label: "PROVIDER" 10px uppercase `--text-muted`  
+- Value: provider name, 13px weight 600, or "— Unassigned" if none
+- On click: opens a dropdown select populated from practice providers
+- On select: saves via `PATCH /api/opportunities/[id]` with `{ providerId: selectedProviderId }`
+- Important: Provider is NOT necessarily a doctor. Could be surgeon, nurse, esthetician, dermatologist, injector, etc. Do not assume or label as "Doctor"
+
+Layout: two equal columns side by side in the panel header area
+```
+COORDINATOR              PROVIDER
+Jessica M.          ▾    Dr. Martinez          ▾
+```
+Small `ChevronDown` icon after each value to signal they're clickable dropdowns.
+
+Add `providerId String?` and `provider` relation to Opportunity model if not present. Run migration.
+
+---
+
+### 2C: TAGS — MAKE INTERACTIVE
+
+Current state: tags display as static pills, cannot be clicked, added, or removed
+Required state: fully interactive
+
+**Adding a tag:**
+- Show a "+ Tag" button at the end of the tag row
+- Clicking opens an inline text input (small, 120px wide) in place of the button
+- User types tag name, press Enter or click checkmark to save
+- Input closes, new tag appears immediately in the row
+- Saves via `PATCH /api/patients/[id]/tags` with `{ tags: [...existingTags, newTag] }`
+
+**Removing a tag:**
+- On hover over any tag pill: show a small × on the right side of the pill
+- Clicking × removes that tag from the array
+- Saves via `PATCH /api/patients/[id]/tags` with updated array
+- Removed tag disappears immediately (optimistic UI)
+
+**Special rendering (must be correct):**
+- "VIP" → `#D1FAE5` background, `#065F46` text, 👑 prefix
+- "Discharged" → `#FEE2E2` background, `#991B1B` text, ⛔ prefix — prominent warning
+- Any other tag → `var(--bg-tertiary)` background, `--text-secondary` text
+
+`Patient.tags` must be a `String[]` field. Add and migrate if not present.
+
+---
+
+### 2D: OVERVIEW TAB — BUILD CORRECTLY
+
+The Overview tab currently shows the wrong content (audit metadata). Replace entirely.
+
+Overview tab must show (in this order, scrollable):
+
+**Section 1: Next Appointment**
+If upcoming appointment linked to this opportunity exists:
+- Highlighted block: `3px solid #10B981` left border, `rgba(16,185,129,0.06)` background, 8px radius, padding 12px
+- Date: Geist Mono weight 700, emerald if within 7 days
+- Type + Provider: 13px `--text-secondary`
+- Status badge right-aligned: "Confirmed" emerald pill / "Unconfirmed" amber pill
+
+If no upcoming appointment:
+- Muted text "No upcoming appointment" + "Book Now →" emerald link (placeholder toast)
+
+**Section 2: Latest Quote**
+Most recent quote for this opportunity:
+- Amount: Geist Mono 22px weight 800 — hero number, `--text-primary`
+- Status pill right-aligned
+- Procedure + date: 12px `--text-muted` below amount
+- If invoice exists, show progress bar immediately below:
+  ```
+  [████████░░░░] $1,000 of $2,000 paid
+  ```
+  6px height bar, emerald fill, `var(--bg-tertiary)` track, rounded
+
+If no quotes: "No quotes yet" `--text-muted` small text
+
+**Section 3: Forms Snapshot**
+2-3 compact rows showing form statuses:
+- Form name + status dot + status text
+- Not Sent: gray dot | Sent: amber dot | Completed: emerald ✓
+- "View all →" link that switches to Forms tab
+
+**Section 4: Quick Actions**
+2×2 grid of action buttons.
+Each button: 80px × 72px, outlined `1px solid var(--border-default)`, 8px radius, icon centered top, label centered below.
+
+```
+[💬 Draft Text]    [✉ Draft Email]
+[📅 Book Appt]     [📞 Log Call]
+```
+
+**Draft Text** (`MessageSquare` icon):
+Toast: "SMS messaging coming in a future phase"
+
+**Draft Email** (`Mail` icon):
+Toast: "Email coming in a future phase"
+
+**Book Appointment** (`CalendarPlus` icon):
+Toast: "Appointment booking coming in Phase 4 — will be pre-linked to this opportunity"
+
+**Log Call** (`Phone` icon):
+Clicking expands an inline form BELOW the 2×2 grid. The grid stays visible above it. Form slides down with 200ms ease-out animation:
+
+```
+──────────────────────────────
+Log Phone Call
+
+Outcome
+( ) Answered    ( ) No Answer
+
+Reason
+[ Select reason              ▾]
+  Follow-up Call
+  Appointment Confirmation
+  Quote Follow-up
+  General Inquiry
+  Left Voicemail
+  Other
+
+Notes
+[                              ]
+[ What was discussed?          ]
+[                              ]
+
+         [Cancel]  [Log Call ✓]
+──────────────────────────────
+```
+
+On "Log Call" click:
+- Validate: outcome must be selected
+- POST to `/api/activities`:
+  ```json
+  {
+    "type": "CALL_LOG",
+    "outcome": "ANSWERED" or "NO_ANSWER",
+    "reason": "selected reason",
+    "content": "note text",
+    "opportunityId": "[id]",
+    "patientId": "[id]",
+    "practiceId": "[id]"
+  }
+  ```
+- On success: show toast "Call logged successfully", collapse form
+- On error: show toast "Failed to log call — try again"
+
+Button hover: `rgba(16,185,129,0.08)` background, `#10B981` border color
+
+---
+
+### 2E: APPOINTMENTS TAB — TIMELINE STORYLINE
+
+Current state: stacked appointment cards
+Required state: compact vertical timeline
+
+Remove the card-based layout entirely. Replace with:
+
+```
+  │
+  ●  Feb 10 · Laser Consult · Jessica Wu              COMPLETED
+  │
+  ●  Feb 27 · Laser Resurfacing · Sofia Reyes         CONFIRMED  
+  │
+  ●  Mar 15 · Follow-up · Dr. Martinez                UNCONFIRMED
+```
+
+**Implementation:**
+- Container: `position: relative`, padding-left: 28px
+- Vertical line: `position: absolute`, left: 7px, top: 0, bottom: 0, `2px solid var(--border-default)`
+- Each row: `position: relative`, min-height: 40px, display flex, align-items center, margin-bottom: 4px
+- Dot: `position: absolute`, left: -25px, width: 12px, height: 12px, border-radius 50%, `2px solid white`, box-shadow: `0 0 0 2px var(--border-default)`
+
+**Past appointments** (before today):
+- Dot: gray `#9CA3AF` filled
+- All text: `--text-muted`, 13px
+- Date: Geist Mono `--text-muted`
+- Status badge: small pill right-aligned
+  - Completed: `#D1FAE5` bg, `#065F46` text
+  - No Show: `#FEE2E2` bg, `#991B1B` text  
+  - Cancelled: `var(--bg-tertiary)` bg, `--text-muted` text
+
+**Future appointments** (today or after):
+- Dot: stage accent color filled
+- Date: Geist Mono, emerald if within 7 days, `--text-primary` otherwise
+- Text: full opacity, 13px `--text-primary`
+- Type + Provider: `--text-secondary`
+- Status badge: Confirmed emerald / Unconfirmed amber
+
+**If more than 4 appointments:** show first 3, "Show X more →" link
+
+**Book Appointment button:**
+Always visible below the storyline. Even if appointments exist.
+Full-width, emerald outlined: `CalendarPlus` icon + "Book Appointment"
+Placeholder toast on click.
+
+**If zero appointments:**
+"No appointments yet" centered `--text-muted` + Book button below
+
+---
+
+### 2F: QUOTES TAB — VISUAL CARDS WITH PROGRESS
+
+Current state: minimal — just amount and date text
+Required state: full visual card treatment
+
+Remove current quotes display. Replace with:
+
+**Each quote = one card:**
+```
+┌─────────────────────────────────────────┐
+│ Laser Resurfacing Package    [● PENDING] │  ← left border: amber 3px
+│                                          │
+│ $1,100                                   │  ← Geist Mono 22px weight 800
+│                                          │
+│ Sent Feb 22 · Expires Mar 24             │  ← 11px Geist Mono --text-muted
+└─────────────────────────────────────────┘
+```
+
+Card styling:
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border-radius: 8px
+- Padding: 16px
+- Left border: 3px solid — amber `#F59E0B` for PENDING, emerald `#10B981` for ACCEPTED, red `#EF4444` for EXPIRED, gray `#9CA3AF` for DRAFT
+- Amount: Geist Mono 22px weight 800 `--text-primary`
+- Procedure name: 13px weight 600, top of card
+- Status pill: top-right, small
+- Dates: 11px Geist Mono `--text-muted`
+- If ACCEPTED: "✓ Accepted" in emerald 12px below dates
+
+**Invoice progress** (shown below its parent quote card when invoice exists):
+```
+Invoice #INV-4521
+████████████░░░░░░░░  $1,000 of $2,000 paid    Record Payment →
+```
+- Invoice label: 11px Geist Mono `--text-muted`
+- Progress bar: full width, 8px height, emerald fill `#10B981`, `var(--bg-tertiary)` track, border-radius 4px
+- Text below bar: "$X of $Y paid" Geist Mono 12px left + "Record Payment →" emerald 12px right
+- If 100% paid: full emerald bar + "Paid in Full ✓" in emerald instead
+
+Multiple quotes: stack cards with 12px gap
+
+Bottom of tab: "+ Create Quote" outlined button (placeholder toast)
+
+---
+
+### 2G: FORMS TAB — FIX DATA + SEED
+
+Current state: "No forms yet" — OpportunityForm table may not be seeded
+Required state: real data showing with 3-state rows
+
+First: verify OpportunityForm table exists. If not, create and migrate:
+```prisma
+model OpportunityForm {
+  id            String    @id @default(cuid())
+  opportunityId String
+  formName      String
+  status        String    @default("NOT_SENT")
+  sentAt        DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+}
+```
+
+Seed at least 3 OpportunityForm records per opportunity with varied statuses:
+- One "NOT_SENT"
+- One "SENT" (with sentAt date)
+- One "COMPLETED" (with completedAt date)
+
+UI for each form row:
+```
+📄 Intake Form              ●  Not Sent     [Send →]
+📄 Surgical Consent         🟡 Sent          [Remind]
+📄 Financial Agreement      ✓  Completed    [View]
+```
+- Row height: 44px, border-bottom between rows
+- Not Sent: 8px gray dot + "Not Sent" `--text-muted`
+- Sent: 8px amber `#F59E0B` dot + "Sent" `#D97706`
+- Completed: `CheckCircle` 14px emerald + "Completed" `#065F46` weight 500
+
+Action buttons right-aligned, small outlined:
+- Not Sent → "Send" (placeholder toast)
+- Sent → "Remind" (placeholder toast)
+- Completed → "View" (placeholder toast)
+
+---
+
+### 2H: ACTIVITY TAB — OPPORTUNITY-SCOPED
+
+Shows activity log filtered to THIS opportunity only. Minimal, understated.
+
+Each entry: single compact row
+- `Phone` icon + "Call logged · Answered · Follow-up · 2h ago"
+- `ArrowRight` icon + "Moved to Quote Sent · 3d ago"
+- `StickyNote` icon + "Note added · Feb 10"
+
+Styling: 13px `--text-secondary`, icon 14px `--text-muted`, timestamp right-aligned Geist Mono `--text-muted`
+Row height: 36px, border-bottom `1px solid var(--border-default)`
+
+If no activity: "No activity recorded yet" centered `--text-muted` italic
+
+---
+
+## PRIORITY 3: PATIENT PROFILE PAGE — FULL BUILD
+
+Once the crash is fixed (Priority 1), build out the full profile page.
+
+### Left Sidebar
+
+**Patient header block:**
+- Avatar: 56px circle, initials (first + last initial), `#10B981` background, white text 20px weight 700
+- Name: 20px weight 700 `--text-primary`
+- Patient ID: 11px Geist Mono `--text-muted` "Patient #[truncated id]"
+- Tags: same rendering as panel (VIP 👑, Discharged ⛔, others gray) — INTERACTIVE (same add/remove logic)
+
+**Quick actions:** 3 equal buttons — `Phone` "Call" | `MessageSquare` "Text" | `Mail` "Email" — placeholder toasts
+
+**CONTACT INFO section:**
+- Email with `Mail` icon
+- Phone with `Phone` icon, Geist Mono
+- DOB + age with `Calendar` icon: "03/15/1985 · 39 yrs"
+- City/State with `MapPin` icon
+Section label: 10px uppercase weight 600 `--text-muted`
+
+**UPCOMING section:**
+Next 2 appointments across ALL opportunities (not just one)
+- Date Geist Mono emerald if ≤ 7 days + type + provider
+- If none: "No upcoming appointments"
+- "+ Book Appointment" placeholder link
+
+**REVENUE section:**
+- Lifetime Revenue: Geist Mono 22px weight 800 emerald — make this feel significant
+- Open Quote Value: Geist Mono 14px amber if > 0
+- "[X] Procedures" 12px `--text-muted`
+Real computed data from database.
+
+**OPEN OPPORTUNITIES section:**
+All non-archived opportunities for this patient
+Each row: procedure name weight 600 + stage pill + value Geist Mono right-aligned
+Clicking a row opens the opportunity panel (reuse same panel component)
+
+**REFERRALS section:**
+- Primary Source: lead source of earliest opportunity
+- Referred By: linked patient if exists
+- Has Referred: count of patients this person referred
+
+---
+
+### Right Content — 7 Tabs
+
+**Timeline · Financial · Communications · Medical Records · Photos · Documents · Notes**
+
+Tabs 3-7: clean placeholder with icon + "Coming soon" + "In Development" emerald badge
+
+### Timeline Tab
+
+Complete reverse-chronological history.
+
+**Filter pills:** All Activity | Appointments | Quotes | Calls | Notes — functional client-side
+
+**Timeline line:** 2px `var(--border-default)` vertical, left: 24px absolute
+**Padding-left:** 52px to clear line and dot
+
+**Entry types:**
+| Type | Dot Color | Icon |
+|------|-----------|------|
+| Appointment | `#3B82F6` blue | `Calendar` |
+| Quote | `#F59E0B` amber | `FileText` |
+| Call Log | `#8B5CF6` purple | `Phone` |
+| Stage Change | `#9CA3AF` gray | `ArrowRight` |
+| Note | `#EAB308` yellow | `StickyNote` |
+| Payment | `#10B981` emerald | `CreditCard` |
+
+Each entry card: white bg, `1px solid var(--border-default)`, 8px radius, 12px 16px padding, subtle shadow
+
+Date group headers: sticky, "Today" / "Yesterday" / "February 10, 2026" — 11px uppercase `--text-muted`
+
+**Add Note button:** "+ Add Note" top-right, opens inline form (textarea + Team Only toggle + Save)
+POST to `/api/patients/[id]/notes` → `{ content, isInternal }`
+New note fades into top of feed.
+
+**Load more:** "Load older activity →" at bottom
+
+### Financial Tab
+
+**KPI strip — 4 cards:**
+Total Revenue (emerald) | Open Balance (red if > 0) | Credits (amber) | Open Quotes (amber)
+
+**Quotes table:**
+Quote # | Procedure | Date | Amount | Valid Until | Status | Actions
+Real data from Quote table.
+
+**Invoices table:**
+Invoice # | Description | Date | Amount | Paid | Status | Actions
+Real data from Invoice table. Create and migrate Invoice model if not present (see P3-R2 spec).
+Seed 2-3 invoices per patient with partial amountPaid.
+
+**Account summary footer:** Total Paid | Outstanding | Credits | Next Payment Due
+
+---
+
+## PRIORITY 4: SCHEMA + SEED VERIFICATION
+
+Before building any UI, verify all of the following exist. Create and migrate anything missing.
+
+**Models that must exist:**
+- `Patient` with `tags String[] @default([])`
+- `OpportunityForm` with status NOT_SENT/SENT/COMPLETED
+- `Invoice` with amountPaid partial payment support
+- `Opportunity` with `providerId String?` and `provider` relation
+- `Activity` supporting type: CALL_LOG, NOTE, STAGE_CHANGE
+
+**Seed data that must exist:**
+- Every opportunity has 2-3 OpportunityForm records with varied statuses
+- Every patient has 2-3 Invoice records with varied statuses and partial payments
+- At least 1 CALL_LOG Activity per patient
+- At least 1 STAGE_CHANGE Activity per opportunity
+- At least 1 NOTE Activity per patient
+
+---
+
+## API ROUTES — VERIFY ALL EXIST AND WORK
+
+- `GET /api/opportunities/[id]/panel` — returns opportunity + patient + appointments + quotes + invoices + forms. Must not crash if any relation is empty.
+- `PATCH /api/opportunities/[id]` — updates title, coordinatorId, providerId. Must accept partial updates.
+- `PATCH /api/patients/[id]/tags` — updates tags array
+- `POST /api/activities` — creates CALL_LOG or NOTE activity
+- `GET /api/patients/[id]` — full patient data. Must not crash.
+- `GET /api/patients/[id]/timeline` — merged feed. Must return empty array if no data, not crash.
+- `GET /api/patients/[id]/financial` — quotes + invoices + totals. Must return empty if no data.
+
+Every API route must:
+1. Scope to practiceId from auth session
+2. Return appropriate error responses (400, 404, 500) rather than throwing unhandled
+3. Handle empty/null relations gracefully
+
+---
+
+## NAVIGATION WIRING — VERIFY ALL WORK
+
+- Pipeline card → panel opens (slide-out) ✓ (already working)
+- Panel patient name link → `/patients/[id]` (already working per screenshots)
+- Sidebar "Patients" nav → `/patients` ✓
+- Patient list row → `/patients/[id]` (currently crashing — fix via Priority 1)
+- Patient profile breadcrumb "Patients" → `/patients`
+- Patient profile left sidebar opportunity rows → open panel
+
+---
+
+## ANIMATIONS — IMPLEMENT ALL
+
+- Panel slide-in: `translateX(100%)` → `translateX(0)`, 250ms ease-out
+- Panel content swap (different card): fade 100ms out, 150ms in
+- Log Call form expand: max-height animation, 200ms ease-out
+- Tab switch: 120ms fade out, 150ms fade in
+- Timeline entry load: stagger 40ms, first 6 only
+- Add Note form: slideDown 200ms
+- New note in feed: fadeUp 200ms
+- Inline edit save flash: "Saved ✓" appears and fades 1000ms
+
+---
+
+## WHAT NOT TO TOUCH
+
+- Pipeline board (columns, cards, drag-and-drop)
+- Dashboard
+- Clerk auth
+- Sidebar navigation structure
+
+---
+
+## DELIVERY CHECKLIST
+
+**Crash fix:**
+- [ ] Patient profile page loads without crashing
+- [ ] All data fetching has error boundaries and null safety
+
+**Panel header:**
+- [ ] Opportunity title click-to-edit with underline style input
+- [ ] Title saves on blur/Enter, cancels on Escape, shows "Saved ✓" flash
+- [ ] Coordinator field present and inline-editable dropdown
+- [ ] Provider field present and inline-editable dropdown
+- [ ] Provider NOT labeled as Doctor/Surgeon
+- [ ] Tags interactive: add via inline input, remove via × on hover
+
+**Overview tab:**
+- [ ] Next appointment highlighted block
+- [ ] Latest quote hero number + progress bar
+- [ ] Forms snapshot rows
+- [ ] Quick Actions 2x2 grid
+- [ ] Log Call form expands inline below grid
+- [ ] Log Call saves to Activity table
+
+**Appointments tab:**
+- [ ] Vertical timeline storyline, NOT cards
+- [ ] Connecting line between dots
+- [ ] Past: grayed, status badges
+- [ ] Future: full color, emerald date if ≤7d
+- [ ] Book Appointment button always visible
+
+**Quotes tab:**
+- [ ] Visual cards with 3px colored left border
+- [ ] Amount as 22px Geist Mono hero number
+- [ ] Invoice progress bar
+- [ ] "Paid in Full ✓" at 100%
+
+**Forms tab:**
+- [ ] Real data from OpportunityForm table
+- [ ] 3 states with correct dots and action buttons
+
+**Activity tab:**
+- [ ] Opportunity-scoped only
+- [ ] Minimal compact rows
+
+**Patient profile:**
+- [ ] Page loads stably
+- [ ] Left sidebar all sections with real data
+- [ ] Revenue is large and emerald
+- [ ] 7 tabs present
+- [ ] Timeline all 6 entry types
+- [ ] Financial KPI strip + tables
+- [ ] Placeholder tabs for 3-7
+
+**Schema:**
+- [ ] Patient.tags migrated
+- [ ] OpportunityForm seeded
+- [ ] Invoice seeded with partial payments
+- [ ] Opportunity.providerId migrated
+- [ ] Activity supports CALL_LOG
+- [ ] No TypeScript errors
+- [ ] No console errors

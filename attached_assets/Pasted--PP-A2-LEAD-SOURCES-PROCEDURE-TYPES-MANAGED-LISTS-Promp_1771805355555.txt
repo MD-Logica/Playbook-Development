@@ -1,0 +1,166 @@
+# PP-A2 — LEAD SOURCES + PROCEDURE TYPES MANAGED LISTS
+
+## Prompt Order & Dependencies
+**Run PP-A1 first.** This prompt builds on the Settings sidebar nav and Managed Lists architecture established in PP-A1. The Tags sub-page, sidebar nav, and Settings layout must already be working before running this prompt.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality — including the Settings sidebar nav, Tags sub-page, or anything else already working in the app.
+- Only create or modify files necessary to add Lead Sources and Procedure Types as described below.
+- When complete, run a full check: no TypeScript errors, no broken imports, no console errors on page load, all new API routes return expected responses.
+- Do not mark this task complete until you have verified: Lead Sources sub-page loads and is accessible from the Settings sidebar, Procedure Types sub-page loads and is accessible from the Settings sidebar, both support add/edit/archive/restore without errors, and the existing lead/opportunity creation forms now pull from the structured lists.
+
+---
+
+## Overview
+Add two more sub-pages under Managed Lists in the Settings sidebar: Lead Sources and Procedure Types. Both follow the same archive/restore pattern as Tags (built in PP-A1). Extend the existing foundation — do not rebuild it.
+
+---
+
+## 1. LEAD SOURCES MANAGED LIST
+
+### Purpose
+Predefined, structured values assigned to patient/opportunity records to track lead origin. Replaces freeform text entry for reporting accuracy. Each source is marked Paid, Organic, or Relationship to enable marketing attribution reporting.
+
+### Page Header
+- Title: "Lead Sources"
+- Subtitle: "Define the channels your practice uses to acquire leads. Used for marketing attribution and ROI reporting."
+- Primary CTA: "+ Add Lead Source" (top right)
+
+### Lead Source List Display
+Each row shows:
+- **Source name**
+- **Channel type badge** — pill badge: Paid (amber), Organic (green), Relationship (blue)
+- **In Use count** — number of records using this source
+- **Status badge** — only visible when Show Archived is toggled on
+- **Actions** — Edit, Archive
+
+Same "Show Archived" toggle pattern as Tags.
+
+### Add / Edit Lead Source — Modal
+Fields:
+- **Source Name** — text input, required, max 48 characters
+- **Channel Type** — segmented control with three options: Paid, Organic, Relationship
+- **Save** / **Cancel**
+
+Validation: Source name must be unique (case-insensitive).
+
+### Alphabetical Sort
+- "Sort A–Z" button above the table (left-aligned, secondary/ghost button style)
+- One-click sorts the active list alphabetically
+- Does not auto-sort on its own — user controls when to apply
+
+### Archive Behavior
+Same as Tags: confirmation if in use, immediate archive if 0 records. Archived items hidden from all lead source pickers app-wide but preserved on historical records. Hard delete only on archived items with 0 records.
+
+### Seed Data
+| Source | Channel Type |
+|---|---|
+| Website | Organic |
+| Google Ads | Paid |
+| Google Organic | Organic |
+| Facebook Ads | Paid |
+| Facebook Organic | Organic |
+| Instagram Organic | Organic |
+| TikTok Ads | Paid |
+| TikTok Organic | Organic |
+| Word of Mouth | Relationship |
+| Referral | Relationship |
+| Physician Referral | Relationship |
+| Existing Patient Referral | Relationship |
+| Walk-In | Relationship |
+| Reddit | Organic |
+| RealSelf | Organic |
+| Yelp | Organic |
+
+### Empty State
+Icon + "No lead sources yet" + "Add your first lead source to start tracking where your patients come from." + inline CTA.
+
+---
+
+## 2. PROCEDURE TYPES MANAGED LIST
+
+### Purpose
+Predefined procedures of interest assigned to patient/opportunity records. Structured values ensure consistent reporting. Free-form lead titles are unchanged — this is a separate structured field.
+
+### Page Header
+- Title: "Procedure Types"
+- Subtitle: "Define the procedures your practice offers. Used to categorize leads and opportunities for reporting."
+- Primary CTA: "+ Add Procedure" (top right)
+
+### Procedure List Display
+Each row shows:
+- **Procedure name**
+- **Category badge** — pill showing category (color-coded by category)
+- **In Use count**
+- **Status badge** — only visible when Show Archived is on
+- **Actions** — Edit, Archive
+
+### Add / Edit Procedure — Modal
+Fields:
+- **Procedure Name** — text input, required, max 64 characters
+- **Category** — dropdown: Surgical, Non-Surgical, Skincare, Body, Hair, Other
+- **Save** / **Cancel**
+
+Validation: Procedure name must be unique (case-insensitive).
+
+### Alphabetical Sort
+Same "Sort A–Z" button pattern as Lead Sources.
+
+### Archive Behavior
+Same pattern as Tags and Lead Sources.
+
+### Seed Data
+| Procedure | Category |
+|---|---|
+| Facelift | Surgical |
+| Rhinoplasty | Surgical |
+| Neck Lift | Surgical |
+| Breast Augmentation | Surgical |
+| Breast Lift | Surgical |
+| Tummy Tuck | Surgical |
+| Liposuction | Surgical |
+| Blepharoplasty | Surgical |
+| Brow Lift | Surgical |
+| Hair Transplant | Hair |
+| Laser Skin Resurfacing | Non-Surgical |
+| Injectables | Non-Surgical |
+| Chemical Peel | Skincare |
+| Facials | Skincare |
+
+### Empty State
+Icon + "No procedure types yet" + "Add the procedures your practice offers to start categorizing leads." + inline CTA.
+
+---
+
+## 3. TECHNICAL NOTES
+
+### Database Models
+
+**LeadSource:** `id`, `name`, `channelType` (PAID | ORGANIC | RELATIONSHIP), `status` (ACTIVE | ARCHIVED), `sortOrder` (integer), `practiceId`, `createdAt`, `updatedAt`
+
+**ProcedureType:** `id`, `name`, `category` (SURGICAL | NON_SURGICAL | SKINCARE | BODY | HAIR | OTHER), `status` (ACTIVE | ARCHIVED), `sortOrder` (integer), `practiceId`, `createdAt`, `updatedAt`
+
+### API Routes
+
+**Lead Sources:** `GET`, `POST` at `/api/settings/lead-sources` | `PATCH /:id`, `PATCH /:id/archive`, `PATCH /:id/restore`, `DELETE /:id`
+
+**Procedure Types:** `GET`, `POST` at `/api/settings/procedure-types` | `PATCH /:id`, `PATCH /:id/archive`, `PATCH /:id/restore`, `DELETE /:id`
+
+Delete only permitted when status is ARCHIVED and In Use count is 0.
+
+### Wiring Into Existing App
+Once both lists are built, update these to use structured values:
+- Lead/opportunity creation form: replace freeform "Lead Source" text input with a dropdown sourced from active LeadSources
+- Patient/opportunity record: replace freeform "Procedure of Interest" text input with a dropdown sourced from active ProcedureTypes
+
+### Clerk Org Scoping
+All operations scoped to current Clerk Organization (practiceId from org context), consistent with existing implementation.
+
+---
+
+## Design Reminders
+- Fully consistent with Tags sub-page built in PP-A1
+- Channel type and category badges use the same badge design language as elsewhere in the app
+- Sort A–Z is understated — ghost or secondary button, never competing with the primary CTA
+- Archived rows: muted appearance, visually distinct from active rows
+- Clean, modern, elegant — consistent with PlaybookMD design system

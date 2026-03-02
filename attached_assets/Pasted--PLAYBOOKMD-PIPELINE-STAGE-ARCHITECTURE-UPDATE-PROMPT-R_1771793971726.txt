@@ -1,0 +1,227 @@
+# PLAYBOOKMD — PIPELINE STAGE ARCHITECTURE UPDATE
+
+## PROMPT REFERENCE
+Code: PIPELINE-STAGES-V2
+Addresses: stage configuration for both Non-Surgical and Surgical pipelines
+
+---
+
+## CONTEXT
+
+The current pipeline stages are too sparse between "New Inquiry" and "Consult Booked" — there's no visibility into the follow-up process or lead quality. This prompt reconfigures both pipelines with a more operationally useful stage structure, adds an "Expiring Quote" stage with automation logic, and removes duplication between "Quote Sent" and "Decision Pending."
+
+This is a data migration + UI update. The board should reflect the new stages after this runs.
+
+---
+
+## DESIGN PRINCIPLES FOR STAGE CONFIGURATION
+
+Before specifying the stages, the following principles must be respected:
+
+1. **Unresponsive and Responsive are separate stages** — not combined into "In Follow-Up." This is intentional. Reporting on where leads are lost (from Unresponsive vs. from Responsive) reveals lead quality. A lead lost from Unresponsive = bad quality lead (couldn't reach them). A lead lost from Responsive = good quality lead (something went wrong in the conversation). These require different corrective actions and must be distinguishable in reports.
+
+2. **Rotting badges measure staff inactivity, not patient inactivity.** A coordinator can call an unresponsive patient daily — the card won't rot — but the patient is still ghosting. The Unresponsive stage handles patient inactivity separately from the rotting indicator.
+
+3. **No duplicate stages.** "Quote Sent" and "Decision Pending" are the same moment: quote is in the patient's hands, ball is in their court. Consolidate into one.
+
+4. **Expiring Quotes is an automation-triggered stage.** It is not manually moved to. It requires automation logic (see below).
+
+5. **Keep total stage count reasonable.** More than 8-9 stages on a board becomes cognitively overwhelming. Each stage must earn its existence with a distinct workflow action.
+
+---
+
+## NON-SURGICAL PIPELINE — UPDATED STAGES
+
+Replace the current Non-Surgical stages with the following (in order):
+
+| # | Stage Name | Color | Description |
+|---|-----------|-------|-------------|
+| 1 | New Inquiry | Blue `#3B82F6` | Untouched, no follow-up yet. Must be empty during business hours. |
+| 2 | Responsive | Emerald `#10B981` | Two-way dialogue — patient is engaging, hasn't booked yet. |
+| 3 | Unresponsive | Amber `#F59E0B` | Follow-up attempted, patient not responding. |
+| 4 | Consult Booked | Purple `#8B5CF6` | Consultation appointment scheduled. |
+| 5 | Consult Completed | Indigo `#6366F1` | Consultation done, quote may or may not have been sent. |
+| 6 | Quote Sent | Orange `#F97316` | Quote in patient's hands, waiting on decision. |
+| 7 | Expiring Quote | Red `#EF4444` | Quote within 20 days of expiration, no invoice created. Auto-populated. |
+| 8 | Deposit Paid | Emerald `#059669` | Patient committed — deposit received. |
+| 9 | Treatment Complete | Gray `#6B7280` | Procedure/treatment done. |
+
+**Lost** is not a stage — it is a status that can be applied to any card from any stage. Cards marked Lost are archived from the board.
+
+---
+
+## SURGICAL PIPELINE — UPDATED STAGES
+
+Replace the current Surgical stages with the following (in order):
+
+| # | Stage Name | Color | Description |
+|---|-----------|-------|-------------|
+| 1 | New Inquiry | Blue `#3B82F6` | Untouched, no follow-up yet. |
+| 2 | Responsive | Emerald `#10B981` | Engaged patient, hasn't booked consult yet. |
+| 3 | Unresponsive | Amber `#F59E0B` | Not responding to follow-up. |
+| 4 | Consult Booked | Purple `#8B5CF6` | Consultation scheduled. |
+| 5 | Consult Completed | Indigo `#6366F1` | Consult done. |
+| 6 | Quote Sent | Orange `#F97316` | Quote sent, awaiting decision. |
+| 7 | Expiring Quote | Red `#EF4444` | Auto-populated — quote expiring soon. |
+| 8 | Surgery Booked | Blue `#2563EB` | Surgery date reserved, deposit paid. |
+| 9 | Pre-Op Complete | Purple `#7C3AED` | Pre-operative requirements done. |
+| 10 | Post-Op / Recall | Emerald `#059669` | Post-op care and long-term retention. |
+
+---
+
+## EXPIRING QUOTE STAGE — AUTOMATION LOGIC
+
+This stage is populated automatically, not by manual card moves. Build the following automation:
+
+### Trigger condition (check nightly via cron or on-demand):
+```
+Quote exists for an opportunity
+AND Quote status = PENDING (not yet accepted or expired)
+AND Quote has an expiresAt date
+AND Today >= (expiresAt - 20 days)  ← within 20 days of expiration
+AND No Invoice linked to this opportunity (patient hasn't committed)
+AND Opportunity is not already in "Expiring Quote", "Deposit Paid", or later stage
+```
+
+### Action:
+- Move the opportunity to the "Expiring Quote" stage
+- Create an Activity record: `{ type: "STAGE_CHANGE", content: "Auto-moved to Expiring Quote — quote expires on [date]", ... }`
+- The coordinator sees this in the next morning's view and knows to call
+
+### Cron schedule:
+Run this check daily at 8:00 AM practice local time (or UTC if timezone not yet configured).
+
+### API endpoint:
+`POST /api/cron/check-expiring-quotes`
+- Protected — only callable by cron or internal admin
+- Returns: `{ moved: number, skipped: number }`
+
+### Seed data for testing:
+Create at least 2 opportunities with:
+- Status in "Quote Sent" stage
+- A quote with expiresAt within the next 20 days
+- No invoice linked
+So that running the cron immediately moves them to "Expiring Quote" and the feature is visibly testable.
+
+---
+
+## DATABASE MIGRATION
+
+### Update PipelineStage records
+
+The stage names, colors, and order must be updated in the database. Do not hardcode stages — they are stored in the `PipelineStage` table.
+
+For each pipeline (Non-Surgical and Surgical), delete the existing stages and re-seed with the updated configuration above.
+
+Preserve any existing Opportunity records by mapping old stage names to the closest new stage:
+- "New Inquiry" → "New Inquiry" (unchanged)
+- "Consult Booked" → "Consult Booked" (unchanged)
+- "Completed" / "Quote Sent" → "Quote Sent"
+- "Decision Pending" → "Quote Sent" (consolidated)
+- "Surgery Booked" → "Surgery Booked"
+- "Pre-Op Complete" → "Pre-Op Complete"
+- "Post-Op and Recall" → "Post-Op / Recall"
+
+Any opportunities in stages that no longer exist: move to the closest equivalent or "New Inquiry" as fallback.
+
+---
+
+## UI UPDATES
+
+### Stage column header labels
+Update column headers to match new stage names exactly.
+
+### "Expiring Quote" column visual treatment
+Give this column a subtle red background tint to make it visually urgent:
+- Column lane background: `rgba(239, 68, 68, 0.04)` instead of the standard `var(--column-bg)`
+- Column header: white with `2px solid #EF4444` bottom border (instead of standard border)
+- Card count badge: red background `#FEE2E2`, red text `#991B1B`
+
+This visual urgency communicates: "these need attention today."
+
+### "New Inquiry" column visual treatment
+Give this column a subtle blue tint with an urgency indicator during business hours:
+- Column lane background: `rgba(59, 130, 246, 0.04)`
+- When card count > 0: column header shows a subtle pulsing dot (8px, blue, CSS animation) to indicate "needs attention"
+
+### Rotting threshold by stage
+Different stages warrant different rotting thresholds. Update the rotting configuration per stage:
+
+| Stage | Rotting threshold |
+|-------|-----------------|
+| New Inquiry | 4 hours (extremely urgent) |
+| Responsive | 24 hours |
+| Unresponsive | 48 hours |
+| Consult Booked | 3 days |
+| Consult Completed | 2 days |
+| Quote Sent | 5 days |
+| Expiring Quote | 1 day |
+| Deposit Paid | 7 days |
+| Surgery Booked | 5 days |
+| Pre-Op Complete | 3 days |
+| Post-Op / Recall | 14 days |
+
+If the PipelineStage model doesn't already have a `rottingThresholdHours` field, add it and migrate. Update the existing rotting calculation logic to use the stage-specific threshold instead of a global one.
+
+---
+
+## PIPELINE SETTINGS PAGE UPDATE
+
+The Pipeline Settings page (if it exists from Phase 2) should reflect these stages. Ensure:
+- Stage names are editable
+- Stage colors are configurable (color picker or preset swatches)
+- rottingThresholdHours is configurable per stage
+- Stage order is drag-reorderable
+- Adding/removing stages is possible (for future customization)
+
+If Pipeline Settings doesn't exist yet, create a minimal version at `/settings/pipeline` that lists the stages with their current configuration. Full editing can come in a later phase — just make the data visible.
+
+---
+
+## WHAT NOT TO TOUCH
+
+- Card design and drag-and-drop logic (unless updating colors per stage)
+- Dashboard
+- Patient profile
+- Authentication
+
+---
+
+## DELIVERY CHECKLIST
+
+**Stage data:**
+- [ ] Non-Surgical pipeline has 9 new stages in correct order with correct colors
+- [ ] Surgical pipeline has 10 new stages in correct order with correct colors
+- [ ] Old stages migrated, existing opportunities mapped to new stages
+- [ ] No orphaned opportunities (all have a valid stageId)
+
+**Expiring Quote automation:**
+- [ ] `POST /api/cron/check-expiring-quotes` endpoint exists
+- [ ] Trigger logic: PENDING quote + expiresAt within 20 days + no invoice + not already in late stage
+- [ ] Moves opportunity to Expiring Quote stage
+- [ ] Creates STAGE_CHANGE Activity record
+- [ ] Seed data has 2 testable opportunities that trigger this immediately
+- [ ] Running the endpoint visibly moves cards on the board
+
+**Visual treatments:**
+- [ ] Expiring Quote column has red tint background and red header border
+- [ ] New Inquiry column has blue tint background
+- [ ] New Inquiry column shows pulsing dot when count > 0
+- [ ] Stage colors on column headers match the color table above
+
+**Rotting thresholds:**
+- [ ] PipelineStage model has rottingThresholdHours field
+- [ ] Each stage has its threshold set per the table above
+- [ ] Rotting calculation uses stage-specific threshold
+- [ ] New Inquiry rotting triggers at 4 hours
+
+**Pipeline Settings:**
+- [ ] /settings/pipeline shows current stage configuration
+- [ ] Stage list is visible with name, color, threshold
+
+**No regressions:**
+- [ ] Drag-and-drop still works across all stages
+- [ ] Pipeline value strip totals update correctly
+- [ ] Filter pills still work
+- [ ] No TypeScript errors
+- [ ] No console errors

@@ -1,0 +1,93 @@
+# PLAYBOOKMD — P2-R5 (PHASE 2, REFINEMENT 5)
+
+## PROMPT REFERENCE SYSTEM
+This prompt is coded P2-R5. All future prompts follow [P{phase}-R{revision}] format for easy reference.
+
+## CONTEXT
+Three targeted fixes only. The appointment chips, rotting indicators, card layout, drag-and-drop, and data fetching are all working correctly — do not touch them. Do not touch the sidebar, dashboard, or any other page.
+
+---
+
+## FIX 1: COLUMN HEADERS — LIGHTEN SIGNIFICANTLY
+
+The current dark navy column headers are too heavy and oppressive. They clash with the card-based content below them and make the board feel like a command interface rather than a work surface.
+
+**Replace the dark header background with a light tinted approach:**
+
+Each column header background should use the column's accent color at **8% opacity** against white. So an emerald-accented column gets `rgba(16, 185, 129, 0.08)` as its header background. A blue-accented column gets `rgba(59, 130, 246, 0.08)`. Etc.
+
+**Column header styling:**
+- Background: `rgba([stage accent color], 0.08)` — light tint, not dark
+- Border-bottom: `2px solid [stage accent color]` — this is the primary accent, full opacity
+- Stage name text: `--text-primary` (dark), 12px, weight 700, uppercase, letter-spacing 0.06em
+- Card count badge: small pill, `[stage accent color]` background at 15% opacity, accent color text, 11px
+- Stage value ($700, $2,550 etc): Geist Mono, 12px, weight 600, `--text-secondary`, right-aligned
+- Header height: 40px, padding 0 14px, display flex, align-items center, justify-content space-between
+- Border-radius: 8px 8px 0 0
+
+This creates column identity through color tinting without the visual weight of dark headers.
+
+---
+
+## FIX 2: NAVIGATION BAR — COLLAPSE TO SINGLE ROW
+
+There are currently two stacked bars at the top creating excessive vertical dead space:
+- Row 1: PlaybookMD logo, search bar, notification bell, user avatar (the global top bar)
+- Row 2: Pipeline title ("Non-Surgical Pipeline ▾") and filter/sort/add lead buttons (the page control bar)
+
+**These must be collapsed into a single bar.**
+
+The global top bar (Row 1) should be the only bar. The pipeline title and action buttons move INTO the global top bar.
+
+**Single top bar layout (left to right):**
+```
+[PlaybookMD logo]  [Non-Surgical Pipeline ▾]    [Search...]  [Filter ▾] [Sort] [+ Add Lead]  [🔔] [VT]
+```
+
+- Logo: stays left, unchanged
+- Pipeline title: immediately right of logo, separated by a `1px solid var(--border-default)` vertical divider, 16px height
+- Pipeline title text: 15px, weight 600, `--text-primary`
+- Chevron: `ChevronDown` 14px, `--text-muted`
+- Search bar: centered or flex-grows to fill middle space
+- Filter, Sort buttons: right side, before notifications
+- "+ Add Lead": rightmost action button before bell and avatar
+- Bell and avatar: far right, unchanged
+
+**Top bar height:** 52px — single row, no stacking
+**Top bar background:** white
+**Top bar border-bottom:** `1px solid var(--border-default)`
+
+After this change, the board (columns + cards) begins immediately below the single top bar with no intermediate control bar row.
+
+**Delete** the separate page-level control bar component entirely. Its contents (pipeline title, filter, sort, add lead) now live in the global top bar.
+
+---
+
+## FIX 3: REMOVE DOT PATTERN FROM BOARD BACKGROUND
+
+Remove the dot/grid pattern from the board background entirely.
+
+Replace with a clean solid color: `#E8EBF0` — a cool blue-gray that's clearly distinct from white card surfaces but has no pattern or texture.
+
+The board background should be flat, clean, and timeless. No gradients, no patterns, no textures.
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Column headers are light-tinted (accent color at 8% opacity), not dark
+- [ ] Column header has 2px solid accent color bottom border
+- [ ] Column header text is dark, not white
+- [ ] Card count badge uses accent color tint
+- [ ] Global top bar is a single 52px row — no second stacked bar
+- [ ] Pipeline title lives in the top bar, right of logo with divider
+- [ ] Filter, Sort, Add Lead buttons are in the top bar right side
+- [ ] No separate page-level control bar exists below the top bar
+- [ ] Board columns begin immediately below the single top bar
+- [ ] Dot/grid pattern removed from board background
+- [ ] Board background is flat `#E8EBF0`
+- [ ] Appointment chips still working
+- [ ] Rotting indicators still working
+- [ ] Drag-and-drop still working
+- [ ] No TypeScript errors
+- [ ] No console errors

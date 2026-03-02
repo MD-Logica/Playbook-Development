@@ -1,0 +1,498 @@
+# PLAYBOOKMD — PHASE 2: PIPELINE / CRM KANBAN BOARD
+
+---
+
+## CONTEXT
+
+Phase 1 is complete. The app shell, navigation, design system, and dashboard are all working. This is Phase 2 — the Pipeline view. This is the most important screen in the entire application. It is the thing that makes PlaybookMD look nothing like an EMR the moment someone opens it.
+
+Run on HIGH AUTONOMY. Follow the design system established in Phase 1 precisely — dark sidebar, emerald brand colors, Geist font, white content area. Make creative decisions where not specified but stay within the established visual language.
+
+---
+
+## CRITICAL DATA MODEL CHANGES FIRST
+
+Before building any UI, make these schema changes to `prisma/schema.prisma`:
+
+### 1. Link Appointments to Opportunities
+Add an optional relationship between Appointment and Opportunity:
+
+```prisma
+model Appointment {
+  // ... existing fields ...
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+}
+
+model Opportunity {
+  // ... existing fields ...
+  appointments  Appointment[]
+}
+```
+
+### 2. Add rotting threshold to PipelineStage
+```prisma
+model PipelineStage {
+  // ... existing fields ...
+  rottingThresholdHours Int @default(168) // 7 days default
+  color                 String? // hex color for stage column header accent
+  automationTrigger     String? // event that auto-moves cards into this stage
+}
+```
+
+### 3. Add Pipeline Automation Rules table
+```prisma
+model PipelineAutomationRule {
+  id            String   @id @default(cuid())
+  practiceId    String
+  pipelineId    String
+  fromStageId   String?  // null means "any stage"
+  toStageId     String
+  triggerEvent  String   // "APPOINTMENT_CREATED" | "CONSULT_COMPLETED" | "QUOTE_SENT" | "QUOTE_ACCEPTED" | "DEPOSIT_PAID" | "SURGERY_COMPLETED"
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  
+  practice      Practice  @relation(fields: [practiceId], references: [id])
+  pipeline      Pipeline  @relation(fields: [pipelineId], references: [id])
+}
+```
+
+### 4. Update Opportunity with pipeline position tracking
+```prisma
+model Opportunity {
+  // ... existing fields ...
+  lastStageMovedAt DateTime?  // when was this card last moved to a new stage
+  isArchived       Boolean    @default(false)
+}
+```
+
+After schema changes, run:
+```bash
+npx prisma migrate dev --name phase2-pipeline-relationships
+npx prisma generate
+```
+
+Then update the seed data to link some existing appointments to opportunities where they logically connect (same patient, same procedure type).
+
+---
+
+## PAGE: `/dashboard/pipeline`
+
+### URL Structure
+- `/dashboard/pipeline` — loads the first pipeline by default
+- `/dashboard/pipeline?id=[pipelineId]` — loads specific pipeline
+
+---
+
+## SECTION 1: PAGE HEADER
+
+### Pipeline Switcher
+- Left side of header
+- Dropdown component showing current pipeline name
+- Dropdown lists all pipelines for the practice, ordered by `order` field
+- On select: updates URL param and re-fetches board data
+- Style: pill-shaped selector, 14px, weight 600, `--text-primary`, chevron icon right
+- Background: white, border `1px solid var(--border-default)`, border-radius 8px
+- Dropdown menu: white card, shadow-md, 8px border-radius, 4px padding
+- Each option: 13px, 36px height, hover `var(--bg-secondary)`
+- Active pipeline: emerald checkmark left, weight 600
+
+### Pipeline Value Summary Strip
+Right of the switcher, inline — four metrics in a horizontal row with dividers between them:
+
+```
+Total Value: $627,300    Velocity: 18d avg    Win Rate: 47.3%    At Risk: $84,500
+```
+
+- Each metric: label 11px uppercase `--text-muted`, value 14px weight 700 `--text-primary`
+- "At Risk" value: `--danger` color (red) if > 0
+- Dividers: `1px solid var(--border-default)` vertical, 20px tall, 20px horizontal margin
+- This strip sits in the top bar area, right-aligned, or just below the page title — whichever fits cleanly
+
+### Action Buttons (top right)
+- `Filter ▼` — outlined button, not functional yet, placeholder
+- `Sort ▼` — outlined button, not functional yet, placeholder  
+- `+ Add Lead` — filled emerald button, `CalendarPlus` icon, opens quick-add modal
+
+---
+
+## SECTION 2: KANBAN BOARD
+
+### Board Container
+- Horizontal scroll if columns overflow viewport
+- Height: fills remaining viewport height after header and bottom bar
+- Background: `var(--bg-secondary)` — slightly off-white, distinct from card white
+- Padding: 20px 24px
+- Column gap: 16px
+- `overflow-x: auto`, custom scrollbar styling (thin, rounded, subtle)
+
+### Column Design
+Each pipeline stage is one column.
+
+**Column header:**
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border-radius: 10px 10px 0 0
+- Padding: 12px 14px
+- Left accent: `4px solid [stage color]` — use stage `color` field, default to emerald if null
+- Stage name: 12px, weight 700, uppercase, letter-spacing 0.06em, `--text-primary`
+- Card count badge: small circle, 18px, `var(--bg-tertiary)` background, 11px weight 600, right of name
+- Column value: 12px, `--text-muted`, below stage name — "$ total value"
+- Column width: 280px fixed, never shrinks
+
+**Column body:**
+- Background: `var(--bg-secondary)`
+- Border-left + border-right: `1px solid var(--border-default)`
+- Min-height: fills to bottom bar
+- Padding: 8px
+- Cards stack vertically with 8px gap
+- Accepts drag-and-drop
+
+**Column footer:**
+- Border: `1px solid var(--border-default)`
+- Border-radius: 0 0 10px 10px
+- Background: white
+- Height: 36px
+- "+ Add card" button: full width, 12px, `--text-muted`, `Plus` icon, hover shows emerald text
+- Clicking opens quick-add inline form in that column
+
+---
+
+## SECTION 3: PIPELINE CARDS
+
+Each opportunity is one card. This is the core visual unit of the entire screen.
+
+### Card Base
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border-radius: 8px
+- Padding: 12px 14px
+- Cursor: grab (pointer when hovering action buttons)
+- Box-shadow: `0 1px 3px rgba(0,0,0,0.06)`
+- Hover: `box-shadow: 0 4px 12px rgba(0,0,0,0.10)`, slight border darkening, 150ms
+- Dragging state: `box-shadow: 0 8px 24px rgba(0,0,0,0.15)`, rotate 2deg, opacity 0.95
+
+### Card Content (top to bottom)
+
+**Row 1: Name + Status Badge**
+- Patient name: 14px, weight 600, `--text-primary`
+- Status badge: right-aligned, small pill — see status types below
+- Gap between: flex space-between
+
+**Row 2: Procedure + Value**
+- Procedure name: 13px, `--text-secondary` — e.g. "Rhinoplasty"
+- Dollar value: 13px, weight 700, `--text-primary` — e.g. "$15,000"
+- Layout: procedure left, value right
+
+**Row 3: Assigned coordinator + Source**
+- Coordinator: `User` icon (10px) + first name, 12px, `--text-muted`
+- Source: small tag if lead source exists — "IG Ad", "Referral", etc., 11px, gray pill
+- Layout: coordinator left, source right
+
+**Row 4: Last activity**
+- 12px, `--text-subtle`
+- Format: "Last contact 3d ago" or "Added 2h ago"
+- If no activity: "No activity yet"
+
+**Row 5: Contextual action button** (only shown on hover OR always shown if urgent)
+- This button changes based on the opportunity's stage and status
+- Stage-aware logic:
+  - NEW INQUIRY stage: `"Call Now"` button — emerald outline, `Phone` icon
+  - CONSULT SCHEDULED stage with upcoming appointment: show appointment time as a green chip — `"Tomorrow 2:00 PM"` — not a button
+  - CONSULT SCHEDULED stage with past appointment not marked done: `"Mark Complete"` amber button
+  - QUOTE SENT stage: `"Follow Up"` button if > 3 days since sent
+  - SURGERY SCHEDULED stage: show surgery date chip — `"Oct 15 • 14 days"` in blue
+  - Default: no action shown
+
+### Rotting Badge
+When `lastActivityAt` exceeds the stage's `rottingThresholdHours`:
+- Red notification badge top-right of card (like iPhone notification badge)
+- Circle, 18px, `#EF4444` background, white text
+- Shows number of days overdue: "3d", "7d", "14d"
+- Card gets a very subtle red tint on background: `rgba(239, 68, 68, 0.03)`
+- Card border becomes: `1px solid rgba(239, 68, 68, 0.3)`
+
+### Status Badge Types (top-right of card)
+```
+🔥 Hot       — amber background, fire emoji, "Hot" text
+❄ Cold       — blue-gray background, "Cold"
+New          — emerald background, white text, "New"  
+✓ Confirmed  — green background, "Confirmed"
+Expired!     — red background, white text, "Expired!"
+Considering  — gray background, "Considering"
+Past Due     — amber background, "Past Due"
+Ready        — emerald background, "Ready"
+Deposit ✓    — emerald background, "Deposit"
+```
+
+These map to opportunity `status` field. Choose the most relevant badge per card.
+
+---
+
+## SECTION 4: DRAG AND DROP
+
+Use `@dnd-kit/core` and `@dnd-kit/sortable` for drag-and-drop. Install if not present.
+
+```bash
+npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+```
+
+### Implementation
+- Wrap the entire board in `<DndContext>`
+- Each column is a `<DroppableColumn>`
+- Each card is a `<SortableCard>`
+- On drag end:
+  1. Optimistically update UI (move card immediately)
+  2. Call `PATCH /api/opportunities/[id]/stage` with `{ stageId, position }`
+  3. If API fails, revert the optimistic update and show a toast error
+
+### Visual Feedback During Drag
+- The column being dragged over gets a subtle emerald border highlight: `border: 2px solid rgba(16,185,129,0.4)`
+- A drop placeholder appears in the target position — a dashed rectangle the same height as the dragged card
+- The dragged card rotates slightly (2deg) and increases shadow
+
+### Stage Transition API
+**`PATCH /api/opportunities/[id]/stage`**
+```typescript
+// Body
+{ stageId: string, position: number }
+
+// Actions:
+// 1. Update opportunity.stageId
+// 2. Update opportunity.position  
+// 3. Update opportunity.lastStageMovedAt = now()
+// 4. Create an Activity record: type "STAGE_CHANGE", note "Moved to [stage name]"
+// 5. Check if any PipelineAutomationRule triggers apply (stub for now — log but don't execute)
+// 6. Return updated opportunity
+```
+
+---
+
+## SECTION 5: BOTTOM ACTION BAR
+
+Fixed to the bottom of the viewport. Always visible.
+
+**Container:**
+- Background: white
+- Border-top: `1px solid var(--border-default)`
+- Height: 52px
+- Padding: 0 24px
+- Display: flex, align-items center, justify-content space-between
+- `position: sticky; bottom: 0; z-index: 10`
+
+**Four metrics, evenly spaced:**
+
+**1. Today's Actions**
+- Label: "TODAY'S ACTIONS" — 10px, uppercase, `--text-muted`
+- Value: count of opportunities with `nextFollowUpAt` = today OR rotting leads in first stage
+- Format: "3 calls due" — 13px, weight 700, `--text-primary`
+- Clicking: no action yet
+
+**2. This Week Closing**
+- Label: "CLOSING THIS WEEK"
+- Value: sum of `estimatedValue` for opportunities in final stage(s) with surgery/procedure date within 7 days
+- Format: "$84,500" — 13px, weight 700, `--brand-primary` (emerald — money is good news)
+
+**3. Stalled Opportunities**
+- Label: "STALLED"
+- Value: count of rotting opportunities across all stages
+- Format: "4 leads" — 13px, weight 700
+- Color: `--danger` if > 0, `--text-primary` if 0
+- If 0: show "Pipeline healthy" in `--brand-primary`
+
+**4. AI Suggestions**
+- Label: "AI SUGGESTIONS"
+- Value: "Coming Soon"
+- Style: entire metric is grayed out — `--text-subtle`, no interaction
+- Small `Sparkles` icon from lucide in `--text-subtle`
+- This is a deliberate placeholder — it signals the feature is coming without pretending it works
+
+**Dividers between metrics:** `1px solid var(--border-default)` vertical
+
+---
+
+## SECTION 6: QUICK-ADD LEAD MODAL
+
+Triggered by "+ Add Lead" button or "+ Add card" in column footer.
+
+**Modal design:**
+- Centered overlay, backdrop `rgba(0,0,0,0.4)`
+- Card: white, 520px wide, border-radius 12px, shadow-xl
+- Header: "New Lead" title + pipeline name subtitle + X close button
+- If triggered from column footer: pre-selects that stage
+
+**Fields:**
+- First Name* + Last Name* — two columns
+- Phone* — with US format mask
+- Email — optional
+- Procedure Interest* — multi-select from procedures list
+- Estimated Value — currency input, auto-calculates from procedure if available
+- Lead Source — dropdown: Instagram, Google, Referral, Walk-in, Website, Other
+- Assign To — dropdown of practice users
+- Stage — pre-selected based on where triggered, but changeable
+- Notes — optional textarea, 3 rows
+
+**Duplicate detection:**
+Before saving, check if a patient with the same phone OR email exists. If found:
+- Show a yellow warning banner inside the modal: "Possible duplicate found — [Name], last active [X days ago]"
+- Two buttons: "Use Existing Record" and "Create Anyway"
+- This is critical for practices that have the same person inquire multiple times
+
+**Footer buttons:**
+- "Cancel" — ghost button
+- "Save" — outlined, creates patient + opportunity, closes modal
+- "Save & Schedule →" — filled emerald, creates patient + opportunity, then opens appointment scheduler (placeholder for now — just show a toast "Scheduling coming in Phase 4")
+
+**API:** `POST /api/opportunities` — creates Patient if new, creates Opportunity, links to stage, creates initial Activity.
+
+---
+
+## SECTION 7: PIPELINE SETTINGS PAGE
+
+Location: `app/(dashboard)/settings/pipeline/page.tsx`
+
+Add "Pipeline" to the Settings page navigation (or create a settings sub-nav if not already present).
+
+**Layout:**
+- Settings page shell with left sub-navigation: General | Pipeline | Users | Billing (all placeholder except Pipeline)
+- Pipeline settings content area
+
+**Pipeline Settings content:**
+
+### Pipeline selector
+Dropdown to select which pipeline to configure. Shows all practice pipelines.
+
+### Stage Configuration Table
+For the selected pipeline, show a table of its stages:
+
+| Stage Name | Order | Rotting Threshold | Color | Actions |
+|-----------|-------|------------------|-------|---------|
+| New Inquiry | 1 | 48 hours | 🟢 | Edit / Delete |
+| Consult Scheduled | 2 | 168 hours (7 days) | 🔵 | Edit / Delete |
+
+**Inline editing:**
+- Click "Edit" on a row → row becomes editable inline
+- Stage Name: text input
+- Rotting Threshold: number input + unit selector (Hours / Days)
+- Color: small color picker (6 preset colors: emerald, blue, amber, purple, red, gray)
+- "Save" and "Cancel" appear inline
+
+**Add Stage button:** "+ Add Stage" below table — appends a new row in edit mode
+
+**Automation Rules section** (below stage table):
+- Title: "Stage Automation Rules"
+- Subtitle: "Automatically move leads between stages based on activity"
+- Table showing any existing rules
+- "+ Add Rule" button — opens a simple modal:
+  - Trigger: dropdown of events (Appointment Created, Consult Completed, Quote Sent, etc.)
+  - Move to Stage: dropdown of stages
+  - "Save Rule" button
+- For now, rules are saved to DB but not yet executed — show a "Beta" badge next to the section title
+
+**Save Changes button:** sticky at bottom of settings content, emerald filled
+
+**API routes needed:**
+- `GET /api/settings/pipelines` — list pipelines with stages
+- `PATCH /api/settings/stages/[id]` — update stage (name, rotting threshold, color)
+- `POST /api/settings/stages` — create new stage
+- `DELETE /api/settings/stages/[id]` — delete stage
+- `POST /api/settings/automation-rules` — create rule
+- `DELETE /api/settings/automation-rules/[id]` — delete rule
+
+---
+
+## API ROUTES SUMMARY
+
+All routes scope to practiceId. Use the practice resolver pattern established in Phase 1.
+
+**`GET /api/pipeline/board?pipelineId=[id]`**
+Returns pipeline with stages, each stage with its opportunities, each opportunity with patient name, assigned user, last activity date, rotting status calculated server-side.
+
+```typescript
+// Response shape
+{
+  pipeline: { id, name, totalValue, velocity, winRate, atRisk },
+  stages: [
+    {
+      id, name, color, rottingThresholdHours, position,
+      opportunities: [
+        {
+          id, patientName, procedureName, estimatedValue,
+          assignedToName, leadSource, lastActivityAt,
+          daysInStage, isRotting, rottingDays,
+          status, nextAppointment
+        }
+      ],
+      totalValue, count
+    }
+  ]
+}
+```
+
+**`PATCH /api/opportunities/[id]/stage`** — move card between stages (documented above)
+
+**`POST /api/opportunities`** — create new opportunity with patient
+
+**`GET /api/pipeline/bottom-bar?pipelineId=[id]`** — returns today's actions count, closing this week value, stalled count
+
+---
+
+## ANIMATIONS
+
+**Board load:**
+- Columns fade up with stagger — same `fadeUp` keyframe from Phase 1
+- Column 1: 0ms, Column 2: 60ms, Column 3: 120ms, etc.
+
+**Card entrance within column:**
+- Cards within each column stagger in: 30ms apart
+- `fadeUp` 200ms ease-out
+
+**Drag feedback:**
+- Dragging card: scale(1.02), rotate(1.5deg), enhanced shadow — CSS transition 150ms
+- Drop zone highlight: background pulses once on successful drop — brief emerald flash (opacity 0 → 0.1 → 0) over 400ms
+
+**Stage move success:**
+- When a card lands in a new column, it briefly flashes a white highlight and returns to normal — confirms the drop registered
+
+---
+
+## WHAT NOT TO BUILD
+
+- Do not build click-through to patient profile (Phase 3)
+- Do not build the card detail slide-out panel (Phase 3)
+- Do not wire up automation rules execution (architecture only)
+- Do not build filter or sort functionality
+- Do not build the AI Suggestions feature
+- Do not modify the dashboard or sidebar
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Prisma schema updated with opportunityId on Appointment, rottingThresholdHours on PipelineStage, PipelineAutomationRule model
+- [ ] Migration runs cleanly
+- [ ] Pipeline board loads at `/dashboard/pipeline`
+- [ ] Pipeline switcher dropdown works and switches board data
+- [ ] Pipeline value summary strip shows real calculated data
+- [ ] Columns render with correct stage colors, card counts, and total values
+- [ ] Cards show name, procedure, value, coordinator, last activity, status badge
+- [ ] Rotting cards show red badge with days count and subtle red card tint
+- [ ] Drag-and-drop works between columns
+- [ ] Drag updates database via PATCH API
+- [ ] Activity record created on stage change
+- [ ] Optimistic UI update on drag with rollback on failure
+- [ ] Bottom action bar shows real data for first three metrics
+- [ ] AI Suggestions shows grayed-out "Coming Soon" with Sparkles icon
+- [ ] "+ Add Lead" modal opens with all fields
+- [ ] Duplicate detection checks phone/email before save
+- [ ] "Save" creates patient + opportunity in correct stage
+- [ ] Pipeline Settings page accessible from Settings nav
+- [ ] Stage table shows all stages with editable rotting thresholds
+- [ ] Inline stage editing saves to database
+- [ ] Color picker works per stage
+- [ ] Automation Rules section present with Beta badge
+- [ ] Board entrance animations play on load
+- [ ] Drag animations are smooth and satisfying
+- [ ] No TypeScript errors
+- [ ] No console errors
+- [ ] Mobile layout does not break (horizontal scroll on board is acceptable)

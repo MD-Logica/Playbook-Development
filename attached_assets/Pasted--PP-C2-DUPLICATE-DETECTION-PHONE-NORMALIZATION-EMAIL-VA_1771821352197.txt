@@ -1,0 +1,159 @@
+# PP-C2 — DUPLICATE DETECTION + PHONE NORMALIZATION + EMAIL VALIDATION + ADD DEAL FROM PATIENT PROFILE
+
+## Prompt Reference
+Code: PP-C2 | New deal form — real-time duplicate detection, phone normalization, email typo suggestions, add deal from patient profile
+Run on MEDIUM AUTONOMY — touches deal creation form, patient profile, and phone/email validation logic.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+**Run PP-C1 first.** This prompt assumes terminology has already been updated to "Deal." Also assumes PP-A2 (managed lists) and PR-A1 (multi-select procedure chips) are already implemented.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to implement the changes described below.
+- The existing deal creation form fields and layout should be preserved — this prompt adds validation and detection behavior on top of what exists.
+- When complete: verify duplicate detection fires correctly on phone and email input, phone formatting is consistent, email suggestions appear for common typos, the patient profile Add Deal button works, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+Currently the "Add Deal" form always creates a new patient/contact record regardless of whether that patient already exists. This causes duplicate patient records, fragmented timelines, and inaccurate reporting. This prompt adds real-time duplicate detection, standardized phone formatting, email typo detection, and a way to add a new deal directly from an existing patient profile.
+
+---
+
+## Change 1: Phone Number Normalization
+
+### Standard Format
+All phone numbers displayed in the app must use this format: **(305) 555-1014**
+Apply this formatting standard everywhere phone numbers appear — forms, patient profile, deal panel, patient list, anywhere a phone number is visible.
+
+### Storage
+Store phone numbers in the database in normalized format: digits only with country code prefix. E.g., `+13055551014`. Never store formatting characters.
+
+### Input Field Behavior
+The phone input field on the Add Deal form (and anywhere else phone is entered) must:
+- Include a country code selector dropdown, defaulting to 🇺🇸 +1 (USA)
+- Accept input in any common format: `3055551014`, `305-555-1014`, `(305) 555-1014`, `305 555 1014`
+- Strip all non-numeric characters on input
+- Auto-format the display as the user types: after 3 digits add parentheses and space, after 6 digits add hyphen
+- On save, normalize to `+[countryCode][digits]` for storage
+- Validate that the number has the correct digit count for the selected country (10 digits for US/Canada)
+
+### Normalization for Duplicate Matching
+When checking for duplicates, normalize both the input and stored numbers to digits-only before comparing. This ensures `(305) 555-1014` matches `3055551014` matches `305.555.1014`.
+
+---
+
+## Change 2: Real-Time Duplicate Detection
+
+### Trigger
+Start checking for duplicates as soon as the phone field has a valid number of digits (10 for US). Also check on email field blur (when focus leaves the field).
+
+### Matching Logic
+- **Primary:** Normalized phone number exact match
+- **Secondary:** Email address exact match (case-insensitive)
+- Either match alone is sufficient to surface a duplicate warning
+
+### Duplicate Match UI
+When a match is found, display a match card directly below the phone or email field inside the form. The card shows:
+- Patient avatar (initials circle, same style as elsewhere in app)
+- Full name (bold, clickable)
+- Phone number
+- Email address
+- A subtle label: "Existing patient"
+- Two actions: **"Add deal to this patient"** (primary, green) and **"Dismiss"** (text link)
+
+The match card should feel like a helpful suggestion, not a blocking error. Staff can dismiss it and continue creating a new contact if they genuinely believe it's a different person.
+
+### On "Add deal to this patient"
+- Closes the new deal form
+- Opens a simplified deal creation form pre-populated with the matched patient's info (name, phone, email fields locked/read-only since patient already exists)
+- Staff only needs to fill in deal-specific fields: Procedure(s), Estimated Value, Source, Stage, Notes
+- On submit: creates the deal linked to the existing patient, no new patient record created
+
+### Multiple Matches
+If more than one potential match is found, show up to 2 match cards stacked. If more than 2, show 2 with a note "and X more matches — search patients."
+
+---
+
+## Change 3: Email Typo Detection
+
+### Common Typo Dictionary
+Check the entered email domain against a dictionary of common mistakes:
+
+| Typed | Suggestion |
+|---|---|
+| .con | .com |
+| .cpm | .com |
+| .ocm | .com |
+| gnail.com | gmail.com |
+| gmai.com | gmail.com |
+| gamil.com | gmail.com |
+| gmail.co | gmail.com |
+| hotmial.com | hotmail.com |
+| hotmail.con | hotmail.com |
+| yahooo.com | yahoo.com |
+| yaho.com | yahoo.com |
+| outlok.com | outlook.com |
+| outloo.com | outlook.com |
+| iclod.com | icloud.com |
+| icloud.con | icloud.com |
+
+### UI Behavior
+When a likely typo is detected on email field blur:
+- Show an inline suggestion directly below the email field: "Did you mean **[corrected email]**?"
+- Two small inline actions: **"Yes, use this"** (applies the correction) and **"No, keep it"** (dismisses)
+- Does not block form submission — staff can ignore and proceed
+- Suggestion disappears once dismissed or corrected
+
+---
+
+## Change 4: Add Deal from Patient Profile
+
+### Where
+On the full patient profile page, in the "Open Deals" section (currently called "Open Opportunities").
+
+### Current State
+This section lists existing open deals but has no way to add a new one from this view.
+
+### New Behavior
+Add a **"+ Add Deal"** button in the header of the Open Deals section on the patient profile.
+
+### On Click
+Opens a simplified deal creation modal that:
+- Is pre-populated with and locks the patient's name, phone, and email (read-only — patient is already known)
+- Only shows deal-specific fields: Procedure(s) (multi-select chips), Estimated Value, Source (with inherit button), Stage, Assigned Coordinator, Notes
+- Auto-generates the deal title using the same logic from PR-A1 (procedure chips → title)
+- On submit: creates the deal linked to this patient, no new patient record created
+- The `isExistingPatient` flag on the activity metadata must be set to `true` for deals created this way
+
+---
+
+## Delivery Checklist
+- [ ] Phone input has country code selector, defaults to +1 USA
+- [ ] Phone auto-formats as user types: (XXX) XXX-XXXX
+- [ ] Phone stored normalized (digits + country code) in database
+- [ ] All phone number displays throughout app use (XXX) XXX-XXXX format
+- [ ] Duplicate check fires when phone has valid digit count
+- [ ] Duplicate check fires on email field blur
+- [ ] Normalization ensures format-agnostic phone matching
+- [ ] Match card appears below field with avatar, name, phone, email
+- [ ] "Add deal to this patient" opens simplified pre-populated form
+- [ ] Simplified form creates deal linked to existing patient, no duplicate record
+- [ ] "Dismiss" hides match card and allows continuing with new patient
+- [ ] Multiple matches show up to 2 cards
+- [ ] Email typo detection fires on blur
+- [ ] Inline suggestion shows corrected email with accept/dismiss actions
+- [ ] Email suggestion does not block form submission
+- [ ] "+" Add Deal" button present on patient profile Open Deals section
+- [ ] Patient profile Add Deal modal pre-populates and locks patient info
+- [ ] Patient profile Add Deal sets isExistingPatient: true in activity metadata
+- [ ] Deal title auto-generates from procedure chips
+- [ ] No TypeScript errors, no console errors
+- [ ] Existing deal creation flow for new patients completely unaffected
+
+## END OF PROMPT

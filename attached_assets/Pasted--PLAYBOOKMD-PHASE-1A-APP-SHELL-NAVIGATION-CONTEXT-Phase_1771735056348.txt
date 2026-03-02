@@ -1,0 +1,187 @@
+# PLAYBOOKMD — PHASE 1A: APP SHELL & NAVIGATION
+
+---
+
+## CONTEXT
+
+Phase 0 is complete. The following are confirmed working:
+- Next.js 15 with App Router
+- Prisma ORM connected to Neon PostgreSQL
+- Clerk authentication with middleware protecting `/(dashboard)` routes
+- Full schema with all data models
+- Seed data: Luminary Aesthetics practice, 5 users, 15 patients, 27 opportunities, 33 appointments
+
+This is Phase 1A. You are building the **app shell only** — the persistent layout that wraps every page in the application. This includes the sidebar navigation, top bar, and layout structure. You are NOT building any page content yet. Page content comes in Phase 1B and beyond.
+
+---
+
+## WHAT TO BUILD
+
+### 1. Root Dashboard Layout
+Create a layout file at `app/(dashboard)/layout.tsx` that wraps all dashboard pages with:
+- A fixed left sidebar (always visible)
+- A top bar
+- A main content area that fills the remaining space
+
+The layout must be fully responsive but optimized for desktop — this is a practice management tool used on desktop computers and laptops, not mobile phones.
+
+### 2. Sidebar Navigation
+Fixed left sidebar, always visible. Width: 240px. Never collapses.
+
+**Navigation items in order:**
+```
+Dashboard          (icon: LayoutDashboard)
+─────────────────── (subtle section divider)
+Patients           (icon: Users)
+Pipeline           (icon: Kanban)
+Appointments       (icon: CalendarDays)
+─────────────────── (subtle section divider)
+Quotes             (icon: FileText)
+Invoices           (icon: Receipt)
+─────────────────── (subtle section divider)
+Reports            (icon: BarChart3)
+Settings           (icon: Settings)
+```
+
+Use icons from `lucide-react` only. Install it if not already installed.
+
+**Sidebar structure top to bottom:**
+- Top: PlaybookMD logo/wordmark (text-based for now, styled with the accent color)
+- Middle: Navigation items (scrollable if needed)
+- Bottom: Practice name + logged-in user name + avatar, with a sign-out button
+
+**Active state:** Soft background fill (`bg-gray-100`), accent-colored icon, slightly bolder label. No heavy highlight bars or gradients.
+
+**Hover state:** Very light gray background fill on hover (`bg-gray-50`). Smooth 150ms transition.
+
+### 3. Top Bar
+Full-width bar at the top of the main content area. Height: 56px. Contains:
+- Page title (dynamic — updates based on current route)
+- Right side: Global search button (non-functional placeholder for now — just a search icon + "Search..." text that looks clickable), notification bell icon, and the logged-in user's avatar
+
+---
+
+## DESIGN SYSTEM — THIS IS THE MOST IMPORTANT PART OF THIS PHASE
+
+This phase establishes the visual language for the entire application. Every future phase will inherit these decisions. Get this right.
+
+**The target aesthetic:** Apple meets Linear. Calm, confident, effortless. Premium without being flashy. This should feel like the most thoughtfully designed tool a practice has ever used.
+
+### Color Palette
+```
+Background:        #FFFFFF  (main content area)
+Surface:           #F8F9FA  (sidebar, cards, secondary surfaces)
+Border:            #E9ECEF  (all borders — 1px, subtle)
+Text Primary:      #0F1117  (headings, important labels)
+Text Secondary:    #6B7280  (supporting text, metadata)
+Text Muted:        #9CA3AF  (placeholders, disabled states)
+Accent:            #0A7EA4  (interactive elements, active states, links)
+Accent Hover:      #086A8A  (hover state for accent elements)
+Accent Light:      #EFF8FC  (accent background tints)
+Success:           #10B981
+Warning:           #F59E0B
+Danger:            #EF4444
+```
+
+Define these as CSS custom properties in `app/globals.css` so they can be referenced consistently across the app.
+
+### Typography
+- Font: Geist Sans (already included with Next.js) — fall back to Inter, then system-ui
+- Base size: 14px for UI text, 13px for metadata/secondary
+- Headings: font-weight 600, tight letter-spacing
+- Labels: font-weight 500
+- Body/metadata: font-weight 400
+- Never use font-weight below 400 in the UI
+
+### Spacing
+- Base unit: 4px
+- Use generous padding — minimum 16px inside any card or container
+- Sidebar padding: 12px horizontal
+- Top bar padding: 16px horizontal
+- Content area padding: 24px all sides
+- Never let elements feel cramped. When in doubt, add more space.
+
+### Component Defaults
+- Border radius: 8px for cards and containers, 6px for buttons and inputs, 4px for badges/chips
+- Shadows: Use sparingly. Cards get `shadow-sm` only. No heavy drop shadows anywhere.
+- Borders: 1px solid `#E9ECEF` — consistent everywhere
+- Transitions: 150ms ease on all interactive states (hover, active, focus)
+- Focus rings: Accent color, 2px offset, visible and accessible
+
+### Sidebar Specific
+- Background: `#F8F9FA`
+- Right border: `1px solid #E9ECEF`
+- Nav item height: 36px
+- Nav item border-radius: 6px
+- Nav item padding: 8px 12px
+- Icon size: 16px
+- Gap between icon and label: 10px
+- Section dividers: 1px solid `#E9ECEF` with 8px vertical margin
+- Section labels (if used): 11px, uppercase, letter-spacing 0.05em, text-muted color
+
+### Top Bar Specific
+- Background: `#FFFFFF`
+- Bottom border: `1px solid #E9ECEF`
+- Never use a shadow on the top bar — the border is enough
+
+---
+
+## TECHNICAL REQUIREMENTS
+
+1. Create a reusable `<Sidebar />` component at `components/layout/Sidebar.tsx`
+2. Create a reusable `<TopBar />` component at `components/layout/TopBar.tsx`
+3. Create the layout at `app/(dashboard)/layout.tsx` that composes both
+4. Use Clerk's `useUser()` hook to display the real logged-in user's name and email in the sidebar footer
+5. Use Clerk's `<SignOutButton />` for the sign-out action
+6. The active navigation item must be detected automatically from the current route using Next.js `usePathname()`
+7. All navigation links use Next.js `<Link />` — no `<a>` tags
+8. The practice name in the sidebar footer should be fetched from the database via an API route at `app/api/practice/route.ts` that returns the current practice. For now, return the first practice record (`prisma.practice.findFirst()`).
+9. The main content area must have `overflow-y: auto` so pages can scroll independently without the sidebar or top bar moving
+
+---
+
+## PLACEHOLDER PAGES
+
+Create minimal placeholder pages for every navigation item so the links all work and don't 404:
+
+```
+app/(dashboard)/dashboard/page.tsx        ← already exists, update it
+app/(dashboard)/patients/page.tsx         ← "Patients — Coming in Phase 2"
+app/(dashboard)/pipeline/page.tsx         ← "Pipeline — Coming in Phase 3"
+app/(dashboard)/appointments/page.tsx     ← "Appointments — Coming in Phase 4"
+app/(dashboard)/quotes/page.tsx           ← "Quotes — Coming in Phase 5"
+app/(dashboard)/invoices/page.tsx         ← "Invoices — Coming in Phase 6"
+app/(dashboard)/reports/page.tsx          ← "Reports — Coming in Phase 7"
+app/(dashboard)/settings/page.tsx         ← "Settings — Coming in Phase 8"
+```
+
+Each placeholder page should look clean and intentional — centered text, the page title, and a subtle "under construction" message. Not a blank screen. Use the design system colors and typography.
+
+---
+
+## WHAT NOT TO BUILD
+
+- Do not build any page content beyond the shell and placeholders
+- Do not build any modals, drawers, or overlays yet
+- Do not build the global search functionality — placeholder only
+- Do not build notifications functionality — icon placeholder only
+- Do not install or configure any charting libraries yet
+- Do not modify the Prisma schema or seed data
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] `app/(dashboard)/layout.tsx` created with sidebar + top bar + content area
+- [ ] `components/layout/Sidebar.tsx` built with all navigation items, icons, active states, hover states, and user footer
+- [ ] `components/layout/TopBar.tsx` built with page title, search placeholder, and notification icon
+- [ ] CSS custom properties defined in `app/globals.css`
+- [ ] Geist font configured and applied globally
+- [ ] Active route detection working via `usePathname()`
+- [ ] Logged-in user name shown in sidebar footer via Clerk `useUser()`
+- [ ] Practice name shown in sidebar footer via API route
+- [ ] All 8 navigation links work and render their placeholder pages
+- [ ] Sign-out button works via Clerk
+- [ ] Layout is clean, consistent, and matches the design system spec
+- [ ] No TypeScript errors
+- [ ] No console errors

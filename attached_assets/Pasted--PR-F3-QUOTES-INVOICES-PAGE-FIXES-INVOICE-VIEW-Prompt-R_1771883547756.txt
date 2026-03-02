@@ -1,0 +1,219 @@
+# PR-F3 — QUOTES & INVOICES PAGE FIXES + INVOICE VIEW
+
+## Prompt Reference
+Code: PR-F3 | Fix dynamic KPIs on Quotes and Invoices pages, build invoice view page, fix routing so invoice rows open invoice view not quote builder
+Run on MEDIUM AUTONOMY — touches Quotes page KPI logic, Invoices page KPI logic, and introduces invoice view page.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-F3, PR-F1, PR-F2, and PP-F4 being already implemented. This is a targeted fix and addition prompt — do not rewrite or restructure anything working correctly.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- When complete: verify Quotes page KPIs update when filters change, Invoices page KPIs update when filters change, invoice view page loads correctly with line items and payment history, invoice routing is fixed throughout. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Fix 1: Dynamic KPIs on Quotes Page
+
+### Problem
+KPIs on the Quotes page are static placeholders — they do not reflect real data and do not update when filters are applied.
+
+### Fix
+Wire all four KPI cards to live data that recalculates whenever filters change. The KPI query must respect all active filters (status, coordinator, date range, patient search).
+
+### KPI Definitions
+
+**Total Active Quotes**
+- Count of quotes with status Draft or Sent
+- Scoped to current filter state
+- If coordinator filter is active: only quotes where coordinatorId matches
+
+**Total Value Quoted**
+- Sum of totals for Draft + Sent quotes
+- Scoped to current filter state
+
+**Acceptance Rate**
+- Calculated at the **deal level**, not the quote level
+- Formula:
+  - Denominator: count of unique deals that have at least one quote matching current filters
+  - Numerator: count of those deals where at least one quote has status = Converted
+  - Rate = Numerator / Denominator × 100
+- If coordinator filter is active: scope to deals where at least one quote is owned by that coordinator
+- This ensures that if a deal had 3 quotes and 1 was converted, it counts as a converted deal (100% for that deal) — multiple unaccepted quotes on the same deal do not penalize the conversion rate
+- Display as percentage with one decimal: "73.3%"
+- If denominator is 0: show "—" instead of 0%
+
+**Expiring Soon**
+- Count of quotes with status Draft or Sent where expiration date is within the next 7 days
+- Scoped to current filter state
+
+### Implementation
+- KPI data fetched from `GET /api/quotes/kpis` endpoint
+- Pass current filter state as query parameters to this endpoint
+- Re-fetch KPIs whenever any filter changes (debounced 300ms)
+- Show subtle loading state on KPI cards during re-fetch (skeleton or opacity pulse)
+
+---
+
+## Fix 2: Dynamic KPIs on Invoices Page
+
+### Problem
+Same issue — Invoices page KPIs are static and do not update when filters change.
+
+### Fix
+Wire all four KPI cards to live data that recalculates whenever filters change.
+
+### KPI Definitions
+
+**Total Invoiced**
+- Sum of totals for all non-void invoices
+- Scoped to current filter state
+
+**Amount Collected**
+- Sum of all payment amounts recorded against invoices matching current filters
+- Scoped to current filter state
+
+**Outstanding Balance**
+- Total Invoiced minus Amount Collected
+- Scoped to current filter state
+
+**Overdue**
+- Count of invoices with status Sent or Partially Paid that are past their due date
+- If no due date field exists on invoices yet, show count of Sent invoices older than 30 days as a proxy
+- Scoped to current filter state
+
+### Implementation
+- KPI data fetched from `GET /api/invoices/kpis` endpoint
+- Pass current filter state as query parameters
+- Re-fetch whenever any filter changes (debounced 300ms)
+- Subtle loading state during re-fetch
+
+---
+
+## Fix 3: Invoice View Page
+
+### Problem
+Clicking an invoice number or the eye icon on the Invoices page routes to the quote builder instead of an invoice view. No dedicated invoice view page exists.
+
+### New Page: Invoice View
+Route: `/invoices/[invoiceId]`
+
+This is a read/edit view for an existing invoice. Layout mirrors the quote builder but is clearly labeled as an invoice.
+
+### Header
+- "Invoice" label with invoice number (e.g., **INV-2026-0001**) prominently displayed
+- Status badge (Draft, Sent, Partially Paid, Paid, Void)
+- Reference line: "Generated from [Q-2026-0006]" as a subtle clickable link back to the originating quote
+- Action buttons (top right):
+  - **Preview** — opens patient-facing invoice output in modal
+  - **PDF** — downloads invoice PDF
+  - **Mark as Sent** — changes status to Sent (if Draft)
+  - **Void Invoice** — with confirmation dialog: "Voiding this invoice cannot be undone. Any recorded payments will be preserved for audit purposes. Continue?" Confirm / Cancel
+
+### Invoice Details Section
+- Patient (read-only, links to patient profile)
+- Deal (read-only, links to deal on pipeline)
+- Coordinator (editable dropdown)
+- Created date (read-only)
+
+### Line Items Section
+- Fully editable — same interface as quote builder line items
+- Changes save immediately or on explicit save action
+- Recalculates totals on any change
+
+### Totals Section
+- Same as quote builder: subtotal, discount, tax, total
+- Deposit section showing deposit amount
+- Balance remaining shown prominently in green (if > 0, show in amber/orange)
+
+### Payment History Section
+Below totals, a dedicated **"Payments"** section:
+
+**Header:** "Payment History" with **"+ Record Payment"** button on the right
+
+**Payment table:**
+| Date | Method | Amount | Reference | Recorded By | Actions |
+|------|--------|--------|-----------|-------------|---------|
+| Feb 23, 2026 | CareCredit | $3,700 | TXN-4892 | Amanda Torres | 🗑 |
+
+**Running balance below table:**
+```
+Invoice Total:        $18,500.00
+Total Paid:            $3,700.00
+Balance Remaining:    $14,800.00
+```
+
+Balance Remaining shown in green if $0, amber if > $0.
+
+Delete payment (trash icon): admin only, requires confirmation "Delete this payment record? This cannot be undone." Recalculates balance and status on delete.
+
+### Record Payment Modal
+Triggered by "+ Record Payment" button:
+- Amount (currency input, pre-fills with balance remaining as hint)
+- Payment Date (date picker, defaults to today)
+- Payment Method (dropdown: Cash, Check, Credit Card, CareCredit, Cherry, PatientFi, Wire Transfer, Other)
+- Reference Number (optional, label adapts: "Check #" for Check, "Transaction ID" for card/financing)
+- Notes (optional textarea)
+- Save Payment | Cancel
+
+On save: payment recorded, totals update immediately, invoice status auto-updates.
+
+---
+
+## Fix 4: Routing Corrections
+
+### Invoices Page — Invoice Number Links
+Invoice numbers displayed in green on the Invoices list page must route to `/invoices/[invoiceId]` — the invoice view page built in Fix 3. Not to the quote builder.
+
+### Invoices Page — Eye Icon
+The eye/view icon on each invoice row must also route to `/invoices/[invoiceId]`. Not to the quote builder.
+
+### Quotes Page — Eye Icon
+Verify the eye icon on quote rows correctly routes to the quote builder (`/quotes/builder?quoteId=[id]`). This should already be working but confirm it is not accidentally routing to the invoice view.
+
+### Patient Profile Financial Tab
+Any invoice links or view buttons on the patient profile Financial tab must also route to `/invoices/[invoiceId]`.
+
+### Deal Finances Tab
+Any invoice links on the deal's Finances tab must route to `/invoices/[invoiceId]`.
+
+---
+
+## Delivery Checklist
+- [ ] Quotes page KPIs pull live data from API
+- [ ] Quotes page KPIs update when status filter changes
+- [ ] Quotes page KPIs update when coordinator filter changes
+- [ ] Quotes page KPIs update when date range filter changes
+- [ ] Quotes page KPIs update when patient search changes
+- [ ] Acceptance rate uses deal-level calculation (not quote-level)
+- [ ] Acceptance rate correctly counts deal as converted if any quote on it converted
+- [ ] Acceptance rate shows "—" when no deals with quotes exist
+- [ ] Subtle loading state shown on KPI cards during re-fetch
+- [ ] Invoices page KPIs pull live data from API
+- [ ] Invoices page KPIs update when any filter changes
+- [ ] Invoice view page exists at /invoices/[invoiceId]
+- [ ] Invoice view shows correct header with number, status, quote reference
+- [ ] Invoice line items are editable
+- [ ] Totals calculate correctly on invoice view
+- [ ] Balance remaining displays correctly
+- [ ] Payment history table renders correctly
+- [ ] Record Payment modal works with all fields
+- [ ] Payment method reference label adapts contextually
+- [ ] Payment saves and totals update immediately
+- [ ] Invoice status auto-updates on payment (Partially Paid / Paid)
+- [ ] Payment deletion works for admin only with confirmation
+- [ ] Void Invoice works with confirmation
+- [ ] Invoice Preview and PDF download work from invoice view
+- [ ] Invoice numbers on Invoices list page route to invoice view
+- [ ] Eye icons on Invoices list page route to invoice view
+- [ ] Eye icons on Quotes list page route to quote builder (verified)
+- [ ] Invoice links on patient profile Financial tab route to invoice view
+- [ ] Invoice links on deal Finances tab route to invoice view
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

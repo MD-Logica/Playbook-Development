@@ -1,0 +1,132 @@
+# PP-E1 — MY ACCOUNT SETTINGS PAGE
+
+## Prompt Reference
+Code: PP-E1 | Builds the My Account settings page — name, credentials, 2FA, session management via Clerk
+Run on LOW AUTONOMY — UI wrapper around Clerk's existing auth features. Do not build custom auth logic.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-A1 (Settings sidebar nav) being already implemented. Add "Account" as a new item in the Settings sidebar nav. This is a personal settings page — it shows the logged-in user's own account details, not practice-wide settings.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Use Clerk's embedded components and APIs wherever possible — do not build custom credential management logic.
+- Wrap Clerk components in PlaybookMD's own UI shell to stay visually consistent with the rest of the settings pages.
+- When complete: verify name updates sync to Clerk, 2FA setup works, session log displays correctly, and sign out all other sessions works. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+Users currently have no way to manage their own account details from within PlaybookMD. This page gives every logged-in user access to update their personal information, manage credentials and two-factor authentication, and monitor their active sessions — all powered by Clerk under the hood.
+
+---
+
+## Settings Sidebar Update
+
+Add **"Account"** as a new top-level item in the Settings sidebar nav, positioned above all other items since it's personal rather than practice-wide. It should have a subtle visual distinction from practice-level settings (e.g., a person/user icon).
+
+---
+
+## Page Layout
+
+The My Account page is divided into three sections, displayed as distinct cards or sections with clear headings:
+
+1. **Personal Information**
+2. **Security & Authentication**
+3. **Active Sessions**
+
+---
+
+## Section 1: Personal Information
+
+### Fields
+- **First Name** — text input, editable, syncs to Clerk user profile on save
+- **Last Name** — text input, editable, syncs to Clerk user profile on save
+- **Email Address** — text input, editable. Clerk requires email verification before the change takes effect — surface this clearly to the user ("A verification link will be sent to your new email address")
+- **Phone Number** — text input with country code selector (same component as PP-C2), editable. Used for SMS-based 2FA and login.
+
+### Save Behavior
+A "Save Changes" button at the bottom of this section. Changes are not auto-saved. Show a success toast on save: "Profile updated successfully."
+
+---
+
+## Section 2: Security & Authentication
+
+### Password
+- "Change Password" button that triggers Clerk's password change flow
+- If the user logs in via phone/SMS only and has no password set, show "Add Password" instead
+
+### Two-Factor Authentication
+- Show current 2FA status: Enabled / Not enabled
+- If not enabled: show a subtle amber banner — "Your account is not protected by two-factor authentication. We strongly recommend enabling it." with an "Enable 2FA" button
+- If enabled: show which methods are active with a green indicator
+- Surface all 2FA methods Clerk supports:
+  - SMS / Text message
+  - Authenticator app (TOTP)
+  - Passkey
+  - Any other methods Clerk supports natively
+- Each method can be added or removed independently
+- Use Clerk's built-in UI components for the actual 2FA setup flows — do not build custom TOTP or passkey logic
+
+### Note on Mandatory 2FA
+Do not enforce mandatory 2FA in this prompt — that will be an admin-level setting added later. For now, only encourage it.
+
+---
+
+## Section 3: Active Sessions
+
+### Current Sessions
+Display a list of the user's active sessions pulled from Clerk. Each session shows:
+- Device/browser info (e.g., "Chrome on macOS")
+- Location if available (city/country)
+- Last active timestamp
+- **"This device"** label on the current session
+- Individual "Sign out" button on each session except the current one
+
+### Recent Sessions
+Below active sessions, show the last 5 recently ended sessions (if Clerk provides this data) with:
+- Device/browser info
+- Last active timestamp
+- Ended/expired status
+
+This gives users visibility into unusual access patterns.
+
+### Sign Out All Other Sessions
+A **"Sign out all other devices"** button at the bottom of this section. Clicking shows a confirmation: "This will sign you out of all other active sessions. You will remain signed in on this device." Confirm / Cancel.
+
+---
+
+## Technical Notes
+
+### Clerk Integration
+- Use `useUser()` hook for reading and updating user profile data (name, email, phone)
+- Use Clerk's `<UserProfile />` component or individual Clerk APIs for credential and 2FA management — wrap in PlaybookMD styling
+- Use Clerk's Sessions API for listing and revoking sessions
+- All changes must go through Clerk — do not store credentials or auth data in the PlaybookMD database
+
+---
+
+## Delivery Checklist
+- [ ] "Account" item added to Settings sidebar nav, positioned at top
+- [ ] Personal Information section renders with correct current values
+- [ ] First and last name update and sync to Clerk on save
+- [ ] Email update triggers Clerk verification flow
+- [ ] Phone number update works with country code selector
+- [ ] Save Changes button shows success toast
+- [ ] Password change / Add Password button triggers Clerk flow
+- [ ] 2FA status displayed correctly
+- [ ] Amber banner shown when 2FA is not enabled
+- [ ] All Clerk-supported 2FA methods surfaced and configurable
+- [ ] Active sessions list displays with device, location, last active
+- [ ] Current session labeled "This device"
+- [ ] Individual session sign out works
+- [ ] Recent sessions section displays last 5 ended sessions
+- [ ] "Sign out all other devices" works with confirmation
+- [ ] Page is visually consistent with rest of Settings
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

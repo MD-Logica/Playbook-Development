@@ -1,0 +1,57 @@
+## Error Type
+Recoverable Error
+
+## Error Message
+Hydration failed because the server rendered text didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <ScrollAndFocusHandler segmentPath={[...]}>
+      <InnerScrollAndFocusHandler segmentPath={[...]} focusAndScrollRef={{apply:false, ...}}>
+        <ErrorBoundary errorComponent={undefined} errorStyles={undefined} errorScripts={undefined}>
+          <LoadingBoundary loading={null}>
+            <HTTPAccessFallbackBoundary notFound={undefined} forbidden={undefined} unauthorized={undefined}>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <InnerLayoutRouter url="/dashboard" tree={[...]} cacheNode={{lazyData:null, ...}} segmentPath={[...]}>
+                    <SegmentViewNode type="page" pagePath="(dashboard...">
+                      <SegmentTrieNode>
+                      <DashboardPage>
+                        <DashboardClient firstName="Vahe">
+                          <div>
+                            <div style={{...}}>
+                              <h2 style={{fontSize:"...", ...}}>
++                               Good evening
+-                               Good morning
+                                ...
+                              ...
+                            ...
+                    ...
+                  ...
+        ...
+
+
+
+    at h2 (<anonymous>:null:null)
+    at DashboardClient (app/(dashboard)/dashboard/DashboardClient.tsx:187:9)
+    at DashboardPage (app/(dashboard)/dashboard/page.tsx:9:10)
+
+## Code Frame
+  185 |         }}
+  186 |       >
+> 187 |         <h2
+      |         ^
+  188 |           style={{
+  189 |             fontSize: "20px",
+  190 |             fontWeight: 600,
+
+Next.js version: 15.5.12 (Webpack)

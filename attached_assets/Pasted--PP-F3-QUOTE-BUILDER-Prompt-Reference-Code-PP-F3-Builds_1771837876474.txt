@@ -1,0 +1,336 @@
+# PP-F3 — QUOTE BUILDER
+
+## Prompt Reference
+Code: PP-F3 | Builds the full quote creation experience — line items, tiered pricing, provider attribution, deposits, financing display, patient-facing output, and Quotes nav page
+Run on MEDIUM AUTONOMY — significant build touching deal panel, quote data model, and Quotes nav page.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-F1 (Income Categories) and PP-F2 (Products & Services) being already implemented. Quote builder pulls items from the ProductService table. PP-F4 (Invoice & Conversion) depends on this prompt being complete first.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to implement the quote builder, quote data model, and Quotes nav page.
+- When complete: verify quotes can be created from a deal and from the + New button, all item types calculate correctly, totals are accurate, deposit displays correctly, patient-facing output renders cleanly, and the Quotes nav page KPIs and list work. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+Quotes are created in the context of a deal and linked to a patient. A deal can have multiple quotes simultaneously (e.g., presenting a patient with Option A and Option B at different price points). Each quote tracks who sold it (coordinator) and who performs each line item (provider). This enables granular financial reporting by coordinator, provider, and income category.
+
+---
+
+## Change 1: + New Global Button
+
+Add a persistent **"+ New"** button to the main sidebar navigation, visible at all times regardless of which page is active. Position it near the top of the sidebar, below the PlaybookMD logo.
+
+Clicking it opens a compact dropdown menu with:
+- **New Deal** — opens the Add Deal form
+- **New Quote** — opens a patient/deal search first, then opens the quote builder
+- **New Invoice** — opens a patient/deal search first, then opens invoice creation (built in PP-F4)
+- **Book Appointment** — Coming Soon (placeholder, grayed out)
+
+For "New Quote" and "New Invoice" the search step shows a simple modal: "Search for a patient or deal" with a search input that queries patients and deals. Selecting a result opens the quote/invoice builder linked to that record.
+
+---
+
+## Change 2: Quote Builder
+
+### Entry Points
+- From the deal's Finances tab: **"+ New Quote"** button
+- From the Quotes nav page: **"+ New Quote"** button
+- From the + New global sidebar button: "New Quote" → patient/deal search
+
+### Quote Header Fields
+- **Quote Number** — auto-generated, format: Q-[YYYY]-[####] (e.g., Q-2026-0001), sequential per practice
+- **Quote Title** — optional free text, defaults to patient name + deal title
+- **Deal** — linked deal (read-only if opened from deal context, searchable if opened from nav)
+- **Patient** — pulled from linked deal (read-only)
+- **Coordinator** — dropdown of active staff, defaults to logged-in user. This is the quote owner — like department tracking in QuickBooks.
+- **Expiration Date** — date picker, required
+- **Status** — auto-managed: Draft (default), Sent, Accepted, Declined, Converted, Expired
+- **Notes** — optional textarea, internal only, not shown on patient-facing output
+
+### Line Items Table
+Columns: Drag Handle | Item | Description | Qty | Unit Price | Hours (conditional) | Provider | Discount | Total | Remove
+
+**Adding items:**
+- **"+ Add Line Item"** button opens a searchable dropdown of active Products & Services
+- Selecting an item pre-fills: name, description (from library), unit price (from library), item type
+- Staff can override name, description, and price on any line item
+
+**Item type behavior on line items:**
+
+*Service (Flat Fee):*
+- Qty (default 1, editable) × Unit Price = Total
+- Hours column hidden
+
+*Service (Hourly):*
+- Hours input shown (e.g., 2.5)
+- Unit Price shows library hourly rate (editable)
+- Total = Hours × Unit Price
+- Hours column visible
+
+*Service (Tiered):*
+- Hours input shown — coordinator enters total surgery hours
+- Unit Price column replaced with auto-calculated display
+- Calculation: if hours ≤ 1: total = base rate. If hours > 1: total = base rate + (subsequent rate × (hours - 1))
+- Show calculation breakdown as a subtle tooltip or subtext: e.g., "$450 + ($350 × 2hrs) = $1,150"
+- Hours column visible
+
+*Bundle:*
+- Shows as single line item with bundle name and bundle price
+- Qty editable
+- A toggle per bundle line item: "Show components" (off by default) — when on, expands to show component items indented below, read-only
+- Total = Qty × Bundle Price
+
+**Per-line-item discount:**
+- Small discount input on each row: accepts either $ amount or % (toggle between the two)
+- Shown as a negative amount in the Total column
+- Discount reduces that line item's total only
+
+**Provider attribution:**
+- Each line item has a Provider dropdown (active providers from staff list)
+- Optional but important for reporting — staff should be encouraged to fill it in
+- Subtle placeholder: "Assign provider"
+
+**Reordering:**
+- Drag handle on left of each row for drag-and-drop reordering
+
+---
+
+### Totals Section
+
+Display below line items, right-aligned:
+
+```
+Subtotal                    $XX,XXX
+Discount                   -$X,XXX   (quote-level discount, if applied)
+Tax (X%)                    $X,XXX   (on taxable items only)
+─────────────────────────────────────
+Total                       $XX,XXX
+
+Deposit Required            $X,XXX
+  ○ Flat amount  ● Percentage  [20]%
+```
+
+**Quote-level discount:**
+- Optional field: fixed $ or % toggle, applies to subtotal before tax
+- Labeled clearly as a promotional discount
+
+**Tax:**
+- Applied only to line items marked taxable in the Products & Services library
+- Uses practice's default tax rate from Tax Settings (PP-F1)
+- If no tax rate is configured, show a subtle warning: "No tax rate configured. Set up in Settings → Finances → Tax Settings."
+
+**Deposit:**
+- Toggle between flat fee and percentage
+- Percentage input (e.g., 20%) auto-calculates deposit amount from Total
+- Deposit amount displayed prominently
+- This is informational on the quote — not a payment collection mechanism
+
+**Financing Options:**
+- Below deposit, show a subtle section: "Financing Available"
+- Display logos or text mentions of: CareCredit, Cherry, PatientFi
+- Static display — no integration, just visual indication that financing is offered
+
+---
+
+### Quote Actions
+- **Save as Draft** — saves without changing status
+- **Mark as Sent** — changes status to Sent (indicates quote has been shared with patient)
+- **Preview** — opens patient-facing output in a new tab or modal
+- **Print / Download PDF** — generates patient-facing PDF
+
+---
+
+## Change 3: Patient-Facing Quote Output
+
+A clean, professional layout for printing or sharing with patients.
+
+### Header
+- Practice logo (from practice settings/branding) and practice name
+- "Quote" label with quote number
+- Date issued and expiration date
+- Patient name and contact info
+- Coordinator name
+
+### Line Items
+- Clean table: Item Name, Description, Qty, Unit Price, Total
+- Bundle components hidden unless "Show components" toggle is on for that bundle
+- Per-line-item discounts shown as a line below the item: "Discount: -$X"
+- Provider attribution NOT shown on patient-facing output (internal only)
+
+### Totals
+- Subtotal, discount (if any), tax, total — same structure as builder
+- Deposit section prominently displayed:
+  ```
+  DEPOSIT TO SECURE YOUR DATE
+  $X,XXX (20% of total)
+  ```
+- Financing section with logos/text
+
+### Footer
+- Quote expiration date: "This quote is valid until [date]"
+- Practice contact info
+- Optional notes field (separate from internal notes — a "patient-facing notes" field in the quote header)
+
+---
+
+## Change 4: Quote Expiration Automation
+
+A background job (cron) that runs daily:
+- Finds all quotes where status is NOT Converted and expiration date has passed
+- Updates their status to Expired
+- Logs an activity entry on the linked deal: `{ action: "quote_expired", quoteId, quoteNumber }`
+- Does NOT affect quotes that have been converted to an invoice
+
+---
+
+## Change 5: Quotes Nav Page
+
+### KPI Strip (top of page)
+Four metric cards:
+- **Total Active Quotes** — count of Draft + Sent quotes
+- **Total Value Quoted** — sum of totals for Draft + Sent quotes
+- **Acceptance Rate** — (Accepted + Converted) / (Accepted + Converted + Declined) as a percentage
+- **Expiring Soon** — count of quotes expiring within the next 7 days
+
+### Quote List
+Below KPIs, a filterable sortable table:
+Columns: Quote # | Patient | Deal | Coordinator | Status | Total | Expiration Date | Created Date | Actions
+
+**Filters:**
+- Status (multi-select: Draft, Sent, Accepted, Declined, Converted, Expired)
+- Coordinator (dropdown)
+- Date range (created date)
+- Patient name search
+
+**Sorting:** click column headers to sort
+
+**Actions per row:**
+- View (opens quote builder in view/edit mode)
+- Click patient name → navigates to patient profile
+- Click deal name → navigates to deal on pipeline
+
+---
+
+## Technical Notes
+
+### Database Model
+
+```prisma
+model Quote {
+  id              String      @id @default(cuid())
+  quoteNumber     String      // Q-YYYY-####
+  title           String?
+  opportunityId   String
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  coordinatorId   String
+  expirationDate  DateTime
+  status          QuoteStatus @default(DRAFT)
+  depositType     DepositType @default(PERCENTAGE)
+  depositValue    Decimal     @default(20)
+  quoteLevelDiscountType  DiscountType?
+  quoteLevelDiscountValue Decimal?
+  internalNotes   String?
+  patientNotes    String?
+  showComponents  Boolean     @default(false)
+  practiceId      String
+  lineItems       QuoteLineItem[]
+  invoice         Invoice?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model QuoteLineItem {
+  id              String         @id @default(cuid())
+  quoteId         String
+  quote           Quote          @relation(fields: [quoteId], references: [id])
+  productServiceId String?
+  productService  ProductService? @relation(fields: [productServiceId], references: [id])
+  name            String
+  description     String?
+  quantity        Decimal        @default(1)
+  unitPrice       Decimal?
+  hours           Decimal?
+  providerId      String?
+  discountType    DiscountType?
+  discountValue   Decimal?
+  sortOrder       Int            @default(0)
+  createdAt       DateTime       @default(now())
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  CONVERTED
+  EXPIRED
+}
+
+enum DepositType {
+  FLAT
+  PERCENTAGE
+}
+
+enum DiscountType {
+  FIXED
+  PERCENTAGE
+}
+```
+
+### API Routes
+- `GET /api/quotes` — list all quotes for practice (with filters)
+- `GET /api/quotes/kpis` — KPI data for nav page
+- `GET /api/opportunities/:id/quotes` — quotes for a specific deal
+- `POST /api/quotes` — create quote
+- `PATCH /api/quotes/:id` — update quote
+- `PATCH /api/quotes/:id/status` — update status
+- `GET /api/quotes/:id/preview` — patient-facing output data
+- `POST /api/quotes/:id/pdf` — generate PDF
+
+---
+
+## Delivery Checklist
+- [ ] + New global button added to sidebar
+- [ ] + New dropdown shows correct options
+- [ ] New Quote from + New opens patient/deal search then quote builder
+- [ ] Quote builder opens from deal Finances tab
+- [ ] Quote builder opens from Quotes nav page
+- [ ] Quote header fields all work correctly
+- [ ] Quote number auto-generates in Q-YYYY-#### format
+- [ ] Line items can be added from Products & Services library
+- [ ] Flat fee items calculate correctly
+- [ ] Hourly items show hours input and auto-calculate
+- [ ] Tiered items show hours input, auto-calculate with breakdown tooltip
+- [ ] Bundle items show as single line item with toggle for components
+- [ ] Per-line-item discounts work in both $ and %
+- [ ] Provider attribution dropdown works on each line item
+- [ ] Line items reorderable via drag and drop
+- [ ] Subtotal, tax, quote-level discount, total all calculate correctly
+- [ ] Tax applies only to taxable items
+- [ ] Tax warning shown when no tax rate configured
+- [ ] Deposit toggle (flat/percentage) works and auto-calculates
+- [ ] Financing options display shown
+- [ ] Save as Draft, Mark as Sent statuses work
+- [ ] Patient-facing preview renders correctly
+- [ ] Bundle components hidden on patient output by default
+- [ ] Provider attribution hidden on patient output
+- [ ] Deposit prominently displayed on patient output
+- [ ] Practice branding shown on patient output
+- [ ] Quote expiration cron job marks expired quotes correctly
+- [ ] Converted quotes not affected by expiration cron
+- [ ] Quotes nav page KPI strip shows correct values
+- [ ] Quotes nav list renders with correct columns
+- [ ] Filters and sorting work on nav list
+- [ ] Quote and QuoteLineItem models created and migrated
+- [ ] All API routes working correctly
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

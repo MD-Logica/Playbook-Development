@@ -1,0 +1,217 @@
+# PP-E2 — USER MANAGEMENT (ADMIN ONLY)
+
+## Prompt Reference
+Code: PP-E2 | Builds the User Management settings page — staff invites, role assignment, deactivation with deal reassignment
+Run on MEDIUM AUTONOMY — touches Clerk organization membership, staff records, and deal reassignment logic.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-A1 (Settings sidebar nav) and PP-E1 (Account settings) being already implemented. This page lives under "Users & Permissions" in the Settings sidebar, replacing the current Coming Soon state. Run PP-E1 before this prompt.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- This page is visible and accessible to Admin role users only. Non-admin users should not see "Users & Permissions" in the Settings sidebar, or if they navigate to it directly, they should see an "Access Denied" state.
+- Use Clerk's Organization Members API for inviting and managing staff — do not build custom auth logic.
+- When complete: verify invite flow works for both email and phone, roles can be assigned, deactivation with deal reassignment works correctly, and historical activity is preserved. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+PlaybookMD is a sales-gated platform — practices cannot self-register. An initial admin user is provisioned by the PlaybookMD team after the sales process. That admin is then responsible for adding and managing all other staff members within their organization. This page is the interface for that management.
+
+---
+
+## Page Layout
+
+Two sections on the page:
+
+1. **Staff Members** — list of all current users in the organization
+2. **Pending Invites** — invites that have been sent but not yet accepted
+
+A single **"+ Invite Staff Member"** button in the top right of the page.
+
+---
+
+## Section 1: Staff Members Table
+
+### Columns
+- **Name** — full name, linked to their profile if applicable
+- **Role** — current assigned role (dropdown to change inline)
+- **Status** — Active or Deactivated (pill badge)
+- **Last Active** — last login timestamp, "Never" if they haven't logged in yet
+- **Actions** — Deactivate button (for active users), Reactivate button (for deactivated users). Admin cannot deactivate themselves.
+
+### Sorting
+Default sort: Active users first, then Deactivated, alphabetical by last name within each group.
+
+### Deactivated Users
+Deactivated users appear in the table with a muted/greyed row treatment and "Deactivated" badge. They remain visible for historical reference but cannot log in.
+
+---
+
+## Section 2: Pending Invites
+
+Shows invites that have been sent but not yet accepted. Each row shows:
+- Name (as entered by admin)
+- Email or phone used for invite
+- Role assigned
+- Date invited
+- **Resend** action (resends the invite)
+- **Cancel** action (revokes the invite with confirmation)
+
+---
+
+## Invite Flow
+
+Clicking **"+ Invite Staff Member"** opens a modal with:
+
+### Fields
+- **First Name** — required
+- **Last Name** — required
+- **Contact Method** — toggle or radio: "Email" / "Phone Number"
+  - If Email selected: email input field
+  - If Phone Number selected: phone input with country code selector (same component as PP-C2)
+- **Role** — dropdown with the four default roles (see below)
+- **Send Invite** button / **Cancel**
+
+### Behavior
+On submit: Clerk sends an invite to the provided email or phone number. The invitee receives a link to set up their account and join the organization. The invite appears in the Pending Invites section until accepted.
+
+---
+
+## Default Roles
+
+Four roles are pre-created for every new practice. These are display-only at this stage — permission enforcement comes in a future prompt.
+
+### Admin
+- Description: "Full access to all practice settings, data, and user management."
+- Cannot be restricted or customized at this stage
+- At least one Admin must exist in the organization at all times
+
+### Provider
+- Description: "Full operational access plus exclusive clinical permissions including medical charting, record sign-off, and clinical documentation."
+- Shows a "Permissions not yet configured" banner in a muted style — informational only, not blocking
+
+### Coordinator
+- Description: "Operational access to pipeline, patients, deals, and scheduling."
+- Shows "Configure permissions before assigning this role" banner in amber
+- Banner includes a note: "Default permissions for this role haven't been set up yet. Assign carefully until permissions are configured."
+
+### Front Desk
+- Description: "Standard access for reception and scheduling tasks."
+- Same amber "configure before assigning" banner as Coordinator
+
+### Role Management Note
+A subtle note at the bottom of the roles section: "Full role permissions configuration is coming soon. You'll be able to define exactly what each role can access across the platform."
+
+---
+
+## Deactivation Flow
+
+Clicking **"Deactivate"** on a staff member:
+
+### Step 1: Check for open deals
+Query all open (non-closed) deals assigned to this staff member as either Coordinator or Provider.
+
+### If 0 open deals
+Show simple confirmation: "Deactivate [Name]? They will lose access immediately but their activity history will be preserved." Confirm / Cancel.
+
+### If 1+ open deals
+Show a reassignment modal:
+
+**Heading:** "Deactivate [Name]?"
+
+**Body:** "[Name] has X open deals assigned to them. Choose how you'd like to handle reassignment before deactivating."
+
+**Two options presented as selectable cards:**
+
+1. **Bulk Reassign** — "Move all X open deals to one staff member"
+   - When selected: shows a dropdown "Reassign all deals to:" listing all active staff members (excluding the person being deactivated)
+   - Deals retain their current stage and pipeline — only the assigned coordinator/provider changes
+
+2. **Reassign Manually** — "I'll reassign deals individually"
+   - When selected: shows a note "You can reassign deals from each patient's profile or from the pipeline board."
+   - Deactivation proceeds immediately without bulk reassignment
+
+**Confirm button:** "Deactivate" (always labeled the same regardless of option selected)
+**Cancel button**
+
+### After Deactivation
+- User loses Clerk organization membership immediately (cannot log in)
+- All historical activity, timeline entries, and audit log entries retain the deactivated staff member's full name
+- If bulk reassign was chosen: all open deals updated with new assignee, activity log entry created for each: `{ action: "bulk_reassign", reason: "staff_deactivated", fromUserId, toUserId }` with structured metadata
+- Closed Won / Closed Lost deals are never touched during deactivation
+
+### Reactivation
+Clicking **"Reactivate"** on a deactivated staff member:
+- Simple confirmation: "Reactivate [Name]? They will regain access to the platform."
+- On confirm: re-adds them to the Clerk organization
+- Their role is preserved from before deactivation
+
+---
+
+## Technical Notes
+
+### Clerk Integration
+- Use Clerk's Organization Members API to list, invite, and remove members
+- Deactivation = remove from Clerk organization (not delete the Clerk user)
+- Reactivation = re-invite or re-add to Clerk organization
+- Staff records in the PlaybookMD database should have an `isActive` boolean that mirrors their Clerk org membership status
+
+### Role Storage
+Store role assignment in the PlaybookMD database on the User/Staff record — not solely in Clerk metadata. This makes role-based queries easier when permission enforcement is added later.
+
+```prisma
+enum StaffRole {
+  ADMIN
+  PROVIDER
+  COORDINATOR
+  FRONT_DESK
+}
+
+model User {
+  // ... existing fields ...
+  role      StaffRole @default(COORDINATOR)
+  isActive  Boolean   @default(true)
+}
+```
+
+### API Routes
+- `GET /api/settings/users` — fetch all staff members for the practice
+- `POST /api/settings/users/invite` — send Clerk invite via email or phone
+- `PATCH /api/settings/users/:id/role` — update role
+- `PATCH /api/settings/users/:id/deactivate` — deactivate with optional bulk reassignment payload
+- `PATCH /api/settings/users/:id/reactivate` — reactivate
+- `DELETE /api/settings/users/invites/:id` — cancel pending invite
+
+---
+
+## Delivery Checklist
+- [ ] Users & Permissions page replaces Coming Soon state in Settings sidebar
+- [ ] Page is only accessible to Admin role users
+- [ ] Staff members table displays with correct columns and sorting
+- [ ] Deactivated users shown with muted styling
+- [ ] Pending invites section displays correctly
+- [ ] Invite modal opens with all fields
+- [ ] Email invite sends via Clerk successfully
+- [ ] Phone number invite sends via Clerk SMS successfully
+- [ ] Role dropdown works in invite modal
+- [ ] Four default roles exist with correct descriptions and banners
+- [ ] Admin cannot deactivate themselves
+- [ ] Deactivation with 0 open deals shows simple confirmation
+- [ ] Deactivation with open deals shows reassignment modal
+- [ ] Bulk reassign correctly updates all open deal assignments
+- [ ] Manual reassign option deactivates immediately without bulk reassignment
+- [ ] Activity log entries created for bulk reassigned deals with structured metadata
+- [ ] Closed Won/Lost deals untouched during deactivation
+- [ ] Historical activity preserves deactivated staff member's name
+- [ ] Reactivation restores Clerk org membership and preserves role
+- [ ] Resend and cancel invite actions work
+- [ ] StaffRole enum and isActive field added to User model and migrated
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

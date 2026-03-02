@@ -1,0 +1,189 @@
+# PP-D2 — PIPELINE SETTINGS PAGE
+
+## Prompt Reference
+Code: PP-D2 | Builds out the Pipeline Settings sub-page — pipeline management, stage management with drag-and-drop reorder, rotting thresholds per stage, bulk reassignment on deletion
+Run on MEDIUM AUTONOMY — touches settings UI, pipeline/stage data models, and deal reassignment logic.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-A1 (Settings sidebar nav) being already implemented. The Pipeline sub-page should slot into the existing Settings sidebar nav under the "Pipeline" item which currently shows a "Coming Soon" state. Replace that Coming Soon state with the full Pipeline Settings page built here.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to implement the Pipeline Settings page.
+- The existing Settings sidebar nav must remain intact — only the content area for the Pipeline item changes.
+- When complete: verify all pipeline and stage CRUD operations work, drag-and-drop reordering persists, rotting thresholds save correctly, bulk reassignment works on deletion, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+The Pipeline Settings page allows practice admins to manage their pipelines and stages directly without developer intervention. Currently pipelines and stages are seeded but not configurable through the UI. This prompt builds the full configuration interface.
+
+---
+
+## Page Layout
+
+The Pipeline Settings page has two panels side by side:
+
+- **Left panel (~35% width):** List of all pipelines for the practice
+- **Right panel (~65% width):** Stage editor for the selected pipeline
+
+---
+
+## Left Panel: Pipeline List
+
+### Display
+Each pipeline shows:
+- Pipeline name
+- Deal count (number of active deals in this pipeline)
+- Selected/active state (highlighted when clicked)
+- Edit (pencil) and Delete (trash) icons on hover
+
+### Add Pipeline
+A **"+ Add Pipeline"** button at the top of the left panel. Clicking opens an inline input directly in the list to type the new pipeline name. Press Enter or click a checkmark to confirm. Press Escape to cancel.
+
+### Rename Pipeline
+Clicking the edit icon on a pipeline makes the name inline-editable. Same Enter/Escape behavior.
+
+### Delete Pipeline
+Clicking delete on a pipeline:
+- **If 0 deals:** Show confirmation "Delete [Pipeline Name]? This cannot be undone." Confirm / Cancel.
+- **If 1+ deals:** Show a reassignment prompt before deletion:
+  - Heading: "Delete [Pipeline Name]?"
+  - Body: "This pipeline contains X active deals. Before deleting, move all deals to another pipeline."
+  - Required dropdown: "Move X deals to:" listing all other active pipelines
+  - A second required dropdown: "Assign to stage:" listing the stages of the selected destination pipeline
+  - Confirm button: "Move & Delete" (disabled until both dropdowns are selected)
+  - Cancel button
+  - On confirm: bulk reassign all deals to the selected pipeline + stage, then delete the pipeline
+
+### Cannot Delete Last Pipeline
+If only one pipeline exists, the delete icon should be disabled with a tooltip: "You must have at least one pipeline."
+
+---
+
+## Right Panel: Stage Editor
+
+### Header
+Shows the selected pipeline name as a heading with a subtle "X stages" count.
+
+### Stage List
+Each stage displays as a draggable row with:
+- **Drag handle** (left side, grip icon) for reordering
+- **Color swatch** — small filled circle showing the stage color (clickable to change)
+- **Stage name** — inline editable on click
+- **Rotting toggle** — on/off switch
+- **Rotting threshold** — visible and editable only when rotting is toggled on: a number input + unit selector (Hours / Days / Weeks / Months)
+- **Delete icon** (trash, right side)
+
+### Stage Color
+Clicking the color swatch opens a small color picker or curated palette (consistent with the tag color palette from PP-A1 — same 12 colors). Selecting a color updates the stage color immediately, which affects the pipeline board column header color.
+
+### Drag-and-Drop Reordering
+Stages can be dragged up and down to reorder. Order changes are saved immediately on drop (or on a debounced save). The pipeline board must reflect the new order on next load or in real time.
+
+### Add Stage
+A **"+ Add Stage"** button at the bottom of the stage list. Clicking adds a new row at the bottom with a blank name input focused. Staff types the name and presses Enter to confirm or Escape to cancel. New stage defaults to rotting off, no threshold set.
+
+### Rename Stage
+Clicking a stage name makes it inline-editable. Enter to confirm, Escape to cancel. Stage name must be unique within the pipeline (case-insensitive).
+
+### Delete Stage
+Clicking delete on a stage:
+- **If 0 deals in stage:** Delete immediately with no prompt.
+- **If 1+ deals in stage:** Show reassignment prompt:
+  - Heading: "Delete [Stage Name]?"
+  - Body: "X deals are currently in this stage. Move them to another stage before deleting."
+  - Required dropdown: "Move X deals to:" listing all other stages in this pipeline
+  - Confirm: "Move & Delete" (disabled until a stage is selected)
+  - Cancel
+  - On confirm: bulk reassign all deals in the deleted stage to the selected stage, then delete.
+
+### Cannot Delete Last Stage
+If a pipeline has only one stage, the delete icon is disabled with tooltip: "A pipeline must have at least one stage."
+
+### Rotting Threshold Logic
+When rotting is toggled on for a stage:
+- A number input and unit selector (Hours / Days / Weeks / Months) appears inline in the row
+- The system checks whether any activity has been logged on the deal's timeline within the defined period
+- If no activity within the threshold period, the deal card on the pipeline board is marked as rotting (existing rotting visual treatment)
+- Rotting is evaluated per stage — a deal only rots if it's been in a rotting-enabled stage without activity for longer than that stage's threshold
+- Save threshold changes immediately on blur or Enter
+
+---
+
+## Automations Section
+
+Below the stage editor, add a section labeled **"Automation Rules"** with a **"Beta"** or **"Coming Soon"** badge.
+
+Display placeholder text: "Automation rules for quote expiration, stage transitions, and follow-up triggers will be configurable here once the quoting and scheduling modules are available."
+
+Do not build any automation functionality — this is a visual placeholder only.
+
+---
+
+## Technical Notes
+
+### Schema Updates
+Add rotting threshold fields to the Stage model if not already present:
+
+```prisma
+model Stage {
+  // ... existing fields ...
+  rottingEnabled    Boolean  @default(false)
+  rottingValue      Int?
+  rottingUnit       RottingUnit?
+}
+
+enum RottingUnit {
+  HOURS
+  DAYS
+  WEEKS
+  MONTHS
+}
+```
+
+### API Routes
+- `GET /api/settings/pipelines` — fetch all pipelines with stage counts and deal counts
+- `POST /api/settings/pipelines` — create pipeline
+- `PATCH /api/settings/pipelines/:id` — rename pipeline
+- `DELETE /api/settings/pipelines/:id` — delete pipeline (with reassignment payload)
+- `POST /api/settings/pipelines/:id/stages` — add stage
+- `PATCH /api/settings/pipelines/:id/stages/:stageId` — update stage (name, color, rotting settings)
+- `PATCH /api/settings/pipelines/:id/stages/reorder` — update stage sort order
+- `DELETE /api/settings/pipelines/:id/stages/:stageId` — delete stage (with reassignment payload)
+
+### Bulk Reassignment
+When reassigning deals on pipeline or stage deletion, update all affected deal records in a single transaction. Log a `STAGE_CHANGE` activity entry for each reassigned deal with metadata indicating it was a bulk reassignment and the reason (e.g., `{ action: "bulk_reassign", reason: "stage_deleted", fromStageId, toStageId }`).
+
+---
+
+## Delivery Checklist
+- [ ] Pipeline Settings page replaces Coming Soon state in Settings sidebar
+- [ ] Left panel lists all pipelines with deal counts
+- [ ] Add, rename, delete pipeline all work correctly
+- [ ] Deleting pipeline with deals shows bulk reassignment prompt
+- [ ] Cannot delete last pipeline
+- [ ] Right panel shows stages for selected pipeline
+- [ ] Stages display with drag handle, color swatch, name, rotting toggle, threshold, delete
+- [ ] Drag-and-drop reordering works and persists
+- [ ] Stage color picker works and updates pipeline board colors
+- [ ] Add stage works with inline input
+- [ ] Rename stage works inline
+- [ ] Delete stage with 0 deals deletes immediately
+- [ ] Delete stage with deals shows bulk reassignment prompt
+- [ ] Cannot delete last stage in a pipeline
+- [ ] Rotting toggle shows/hides threshold input correctly
+- [ ] Rotting threshold saves correctly with value and unit
+- [ ] Bulk reassignment on deletion creates activity log entries
+- [ ] Automations section shows Coming Soon placeholder
+- [ ] Schema updated with rotting fields and migrated
+- [ ] All API routes working correctly
+- [ ] No TypeScript errors, no console errors
+- [ ] Existing pipeline board completely unaffected
+
+## END OF PROMPT

@@ -1,0 +1,377 @@
+# PP-F4 — INVOICE & QUOTE CONVERSION + PAYMENT TRACKING
+
+## Prompt Reference
+Code: PP-F4 | Builds quote-to-invoice conversion, invoice creation, payment recording, Invoices nav page, and updates patient profile Financial tab
+Run on MEDIUM AUTONOMY — significant build touching quote model, new invoice and payment models, patient profile, and Invoices nav page.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-F3, PR-F1, and PR-F2 being already implemented. Quote model and quote builder must be working before this prompt. PP-F4 is the final prompt in the F series.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to implement invoice conversion, invoice management, payment tracking, and the Invoices nav page.
+- When complete: verify quote conversion creates invoice correctly, multi-quote visual states render correctly, payment recording works, invoice PDF downloads, patient Financial tab shows both quotes and invoices with payment history, Invoices nav KPIs and list work. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+Quotes are proposals sent to patients. Once a patient accepts, the quote is converted to an invoice — the binding financial document. A deal can have multiple quotes but only one converted invoice at a time. Patients often pay in installments, so each invoice tracks a full payment history to enable reconciliation.
+
+---
+
+## Change 1: Quote → Invoice Conversion
+
+### Entry Point
+On any quote with status Draft, Sent, or Accepted, show an **"Accept & Convert to Invoice"** action button. This can appear:
+- In the quote builder header actions
+- On each quote card in the deal's Finances tab
+- On the quote row in the patient profile Financial tab
+
+### Conversion Flow
+Clicking "Accept & Convert to Invoice" opens a confirmation modal:
+
+**Heading:** "Convert Quote to Invoice?"
+
+**Body summary:**
+- Quote number
+- Patient name
+- Total amount
+- Number of line items
+- A note: "This will generate Invoice #INV-[next number] and mark this quote as Converted. Other open quotes for this deal will be marked as not accepted."
+
+**Actions:** "Convert to Invoice" (primary green) | "Cancel"
+
+### On Confirm
+1. Quote status → Converted
+2. Invoice created with all line items copied from the quote
+3. All other quotes on the same deal that are Draft or Sent → status remains unchanged but visually marked as non-active (see Change 2)
+4. Activity log entry on the deal: `{ action: "quote_converted", quoteId, quoteNumber, invoiceId, invoiceNumber }`
+
+### Guard: One Active Invoice Per Deal
+If a deal already has a non-void invoice, the "Accept & Convert to Invoice" button is hidden on all quotes for that deal. To convert a different quote, the existing invoice must first be voided.
+
+---
+
+## Change 2: Multi-Quote Visual Treatment on Deal
+
+On the deal's Finances tab, where all quotes are listed:
+
+### Converted Quote
+- Green "Converted" badge
+- Prominent, full opacity
+- Shows linked invoice number as a clickable link: "→ INV-2026-0001"
+- Slightly elevated visual treatment (subtle green left border or background tint)
+
+### Draft / Sent Quotes (non-converted)
+- Standard treatment, full opacity
+- Show their status badge normally
+- "Accept & Convert to Invoice" button available
+
+### Declined Quotes
+- Muted/grayed out (60% opacity)
+- "Declined" badge in red
+- Still expandable and readable
+- No conversion action available
+
+### Expired Quotes
+- Muted/grayed out
+- "Expired" badge in muted red
+- Still readable
+- No conversion action available
+
+### General Rule
+Nothing is ever hidden or deleted. All quotes remain accessible. Visual hierarchy makes it immediately clear which quote became the invoice.
+
+---
+
+## Change 3: Invoice Model & Creation
+
+### Invoice Number
+Auto-generated format: **INV-YYYY-####** (e.g., INV-2026-0001), sequential per practice.
+
+### Invoice Fields
+- Invoice number (auto-generated)
+- Linked quote (read-only reference — "Generated from Q-2026-0001")
+- Linked deal and patient (from quote)
+- Coordinator (from quote, editable)
+- Line items (copied from quote, fully editable — procedures can change up until surgery)
+- Same totals logic as quote: subtotal, tax, discount, total
+- Deposit amount (carried from quote)
+- Status: Draft | Sent | Partially Paid | Paid | Void
+- Internal notes
+- Patient notes (shown on invoice PDF)
+- Created date, updated date
+
+### Status Auto-Management
+- Default on creation: Draft
+- When marked Sent: status → Sent
+- When any payment recorded: if balance > 0 → Partially Paid, if balance = 0 → Paid
+- Manual void option available (requires confirmation)
+
+### Invoice Editing
+Line items on an invoice are editable after creation since procedure plans can change close to surgery. Editing line items recalculates totals and updates balance remaining.
+
+---
+
+## Change 4: Payment Recording
+
+### Payment Model
+```prisma
+model Payment {
+  id              String        @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id])
+  amount          Decimal
+  paymentDate     DateTime
+  method          PaymentMethod
+  referenceNumber String?       // check number, transaction ID, etc.
+  notes           String?
+  recordedBy      String        // userId of staff who recorded it
+  practiceId      String
+  createdAt       DateTime      @default(now())
+}
+
+enum PaymentMethod {
+  CASH
+  CHECK
+  CREDIT_CARD
+  CARECREDIT
+  CHERRY
+  PATIENTFI
+  WIRE_TRANSFER
+  OTHER
+}
+```
+
+### Recording a Payment
+A **"+ Record Payment"** button appears on:
+- Each invoice in the deal Finances tab
+- Each invoice in the patient profile Financial tab
+- The invoice view/editor itself
+
+Clicking opens a modal:
+- **Amount** — currency input, required. Pre-fills with balance remaining as a helper hint.
+- **Payment Date** — date picker, defaults to today
+- **Payment Method** — dropdown of PaymentMethod options
+- **Reference Number** — text input, optional (label changes contextually: "Check #" for Check, "Transaction ID" for card/financing, "Reference #" for others)
+- **Notes** — textarea, optional
+- **Save Payment** | **Cancel**
+
+On save: payment recorded, invoice totals update immediately, status auto-updates to Partially Paid or Paid.
+
+### Payment History Display
+On each invoice (in deal Finances tab, patient profile, and invoice view):
+
+A **"Payments"** section below the invoice totals showing:
+
+| Date | Method | Amount | Reference | Recorded By |
+|------|--------|--------|-----------|-------------|
+| Feb 23, 2026 | CareCredit | $3,700 | TXN-4892 | Amanda Torres |
+| Mar 1, 2026 | Credit Card | $14,800 | — | Sofia Reyes |
+
+Running balance shown clearly:
+```
+Invoice Total:      $18,500
+Total Paid:          $3,700
+Balance Remaining:  $14,800
+```
+
+Payments can be deleted (with confirmation) by admin users only. Deleting a payment recalculates balance and status.
+
+---
+
+## Change 5: Invoice PDF
+
+Same editorial design as quote PDF (PR-F1):
+- Playfair Display / Cormorant Garamond for headers
+- Inter / DM Sans for body
+- Practice branding (logo, primary color, secondary color)
+- Generous white space, clean typography
+
+### Invoice-Specific PDF Structure
+Same as quote PDF but:
+- Label reads "Invoice" instead of "Quote"
+- Invoice number instead of quote number
+- Shows "Generated from Quote [Q-number]" as a subtle reference line
+- Payment history section at bottom (if any payments recorded):
+  - Shows payments made to date
+  - Shows balance remaining prominently
+- No expiration date (invoices don't expire)
+- Coordinator contact pill at bottom (same as quote)
+
+### Download
+"Download PDF" button on invoice view. Filename: `Invoice-[InvoiceNumber]-[PatientLastName].pdf`
+
+---
+
+## Change 6: Patient Profile Financial Tab Updates
+
+### Quotes Section (existing, refine)
+- Show all quotes for this patient across all deals
+- Each quote row: quote number, deal name, status badge, total, expiration date, created date
+- Converted quotes show link to invoice
+- Expandable row to show line item summary
+
+### Invoices Section (new)
+Add an Invoices section below Quotes on the Financial tab.
+
+Each invoice row shows:
+- Invoice number
+- Linked deal name
+- Status badge
+- Invoice total
+- Total paid (e.g., "$3,700 of $18,500")
+- Balance remaining
+- Created date
+- Actions: View, Download PDF, Record Payment
+
+Each invoice row is **expandable** to show:
+- Full payment history table (date, method, amount, reference, recorded by)
+- Running balance
+- "+ Record Payment" inline button
+
+### KPI Cards Update
+Update the existing KPI cards on the Financial tab to reflect accurate data:
+- **Total Revenue** — sum of all Paid invoices for this patient
+- **Open Balance** — sum of balance remaining across all Partially Paid invoices
+- **Open Quotes** — total value of Draft + Sent quotes
+- **Credits** — placeholder for now ($0)
+
+---
+
+## Change 7: Invoices Nav Page
+
+### KPI Strip (top of page)
+Four metric cards:
+- **Total Invoiced** — sum of all non-void invoice totals
+- **Amount Collected** — sum of all payments recorded
+- **Outstanding Balance** — total invoiced minus amount collected
+- **Overdue** — count of Sent or Partially Paid invoices past a due date (if due date is set — optional field on invoice)
+
+### Invoice List
+Filterable sortable table:
+Columns: Invoice # | Patient | Deal | Coordinator | Status | Total | Paid | Balance | Created Date | Actions
+
+**Filters:**
+- Status (multi-select)
+- Coordinator (dropdown)
+- Date range (created date)
+- Patient name search
+
+**Sorting:** click column headers
+
+**Actions per row:**
+- View invoice
+- Download PDF
+- Record Payment
+- Click patient name → patient profile
+- Click deal name → deal on pipeline
+
+---
+
+## Technical Notes
+
+### Database Models
+
+```prisma
+model Invoice {
+  id              String        @id @default(cuid())
+  invoiceNumber   String        // INV-YYYY-####
+  quoteId         String?       @unique
+  quote           Quote?        @relation(fields: [quoteId], references: [id])
+  opportunityId   String
+  opportunity     Opportunity   @relation(fields: [opportunityId], references: [id])
+  coordinatorId   String
+  status          InvoiceStatus @default(DRAFT)
+  lineItems       InvoiceLineItem[]
+  payments        Payment[]
+  depositType     DepositType   @default(PERCENTAGE)
+  depositValue    Decimal       @default(20)
+  discountType    DiscountType?
+  discountValue   Decimal?
+  internalNotes   String?
+  patientNotes    String?
+  practiceId      String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model InvoiceLineItem {
+  id               String   @id @default(cuid())
+  invoiceId        String
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id])
+  productServiceId String?
+  name             String
+  description      String?
+  quantity         Decimal  @default(1)
+  unitPrice        Decimal?
+  hours            Decimal?
+  providerId       String?
+  discountType     DiscountType?
+  discountValue    Decimal?
+  sortOrder        Int      @default(0)
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+```
+
+### API Routes
+- `POST /api/quotes/:id/convert` — convert quote to invoice
+- `GET /api/invoices` — list all invoices (with filters)
+- `GET /api/invoices/kpis` — KPI data for nav page
+- `GET /api/opportunities/:id/invoices` — invoices for a deal
+- `POST /api/invoices` — create invoice manually
+- `PATCH /api/invoices/:id` — update invoice
+- `PATCH /api/invoices/:id/status` — update status
+- `POST /api/invoices/:id/payments` — record payment
+- `DELETE /api/invoices/:id/payments/:paymentId` — delete payment (admin only)
+- `GET /api/invoices/:id/pdf` — generate invoice PDF
+
+---
+
+## Delivery Checklist
+- [ ] "Accept & Convert to Invoice" button appears on quotes in correct locations
+- [ ] Conversion modal shows correct summary
+- [ ] Conversion creates invoice with copied line items
+- [ ] Quote status updates to Converted after conversion
+- [ ] Activity log entry created on conversion
+- [ ] Guard prevents second invoice if non-void invoice exists
+- [ ] Multi-quote visual states render correctly (converted, draft, declined, expired)
+- [ ] Converted quote shows link to invoice number
+- [ ] Invoice number auto-generates in INV-YYYY-#### format
+- [ ] Invoice line items editable after creation
+- [ ] Invoice status auto-updates based on payments
+- [ ] Record Payment modal works with all fields
+- [ ] Payment method dropdown has all options
+- [ ] Reference number label changes contextually
+- [ ] Payment history table displays correctly on invoice
+- [ ] Running balance calculates correctly
+- [ ] Invoice status updates to Partially Paid / Paid automatically
+- [ ] Payment deletion works for admin only with confirmation
+- [ ] Invoice PDF downloads with editorial design
+- [ ] Invoice PDF shows payment history
+- [ ] Invoice PDF shows balance remaining
+- [ ] Coordinator contact pill on invoice PDF
+- [ ] Patient profile Financial tab shows Invoices section
+- [ ] Invoice rows expandable with payment history
+- [ ] "+ Record Payment" inline on patient profile
+- [ ] Patient profile KPI cards updated with correct logic
+- [ ] Invoices nav page KPI strip shows correct values
+- [ ] Invoices nav list renders with correct columns
+- [ ] Filters and sorting work
+- [ ] Invoice, InvoiceLineItem, Payment models created and migrated
+- [ ] All API routes working correctly
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

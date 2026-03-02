@@ -1,0 +1,217 @@
+# PP-F1 — FINANCES SETTINGS SECTION + INCOME CATEGORIES
+
+## Prompt Reference
+Code: PP-F1 | Builds the Finances section in Settings sidebar + Income Categories sub-page with hierarchical tree, playbook template, and Tax Settings placeholder
+Run on MEDIUM AUTONOMY — touches Settings sidebar nav, introduces new Finances section, and builds hierarchical category data model.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-A1 (Settings sidebar nav) being already implemented. This prompt adds a new "Finances" section to the existing Settings sidebar. PP-F2 (Products & Services) depends on Income Categories being built here first. Run PP-F1 before PP-F2.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to add the Finances section and Income Categories page.
+- The existing Settings sidebar nav must remain intact — only extend it with the new Finances section.
+- When complete: verify the Finances section appears in the sidebar, Income Categories tree renders correctly, add/rename/delete/archive all work, the playbook template loads correctly, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+The Settings sidebar currently has Managed Lists (Tags, Lead Sources, Procedure Types) for operational configuration. Financial configuration needs its own separate section — both for future access control (owner-level permissions) and to signal that this is more sensitive territory than day-to-day managed lists. Income Categories function like a chart of accounts — the more accurately practices categorize their services, the more useful their financial reports become.
+
+---
+
+## Change 1: Settings Sidebar — Add Finances Section
+
+Add a new **"Finances"** section to the Settings sidebar nav, positioned between Managed Lists and Pipeline. Sub-items:
+
+```
+Finances
+  └ Income Categories
+  └ Products & Services  ← Coming Soon (built in PP-F2)
+  └ Tax Settings         ← Simple placeholder for now
+```
+
+Income Categories is the only fully functional sub-page in this prompt. Products & Services shows a Coming Soon state. Tax Settings is a simple functional page (see below).
+
+---
+
+## Change 2: Tax Settings Page (Simple)
+
+A minimal page under Finances → Tax Settings with:
+
+- **Page header:** "Tax Settings" with subtitle "Configure the default tax rate applied to taxable products and services on quotes and invoices."
+- A single field: **"Default Tax Rate"** — percentage input (e.g., 7.5%), saved to the practice record
+- A note: "Individual products and services can be marked taxable or non-taxable. This rate applies to all taxable line items unless overridden."
+- Save button with success toast on save
+
+This is intentionally simple — just captures the global tax rate for use in PP-F3 (quoting).
+
+---
+
+## Change 3: Income Categories Page
+
+### Purpose
+Income Categories are a user-configurable hierarchical tree used to classify products and services for financial reporting. Think of them as a chart of accounts — practices organize their revenue into categories they can drill down into for reporting purposes.
+
+### Page Header
+- Title: "Income Categories"
+- Subtitle: "Organize your services into categories for financial reporting. Think of these as your chart of accounts — the more accurately you categorize, the more useful your reports will be."
+- Two buttons top right: **"Load Playbook Template"** (secondary) and **"+ Add Category"** (primary)
+
+### Tree Display
+Render categories as an indented, expandable tree. Each node shows:
+- **Expand/collapse chevron** if it has children
+- **Category name**
+- **Item count** — number of products/services assigned to this category (e.g., "4 items") — show only if > 0
+- **Add child** icon — small + icon to add a subcategory directly under this node
+- **Edit** icon — pencil to rename inline
+- **Archive** icon — archive this category
+- **Drag handle** — for reordering within the same level
+
+Top-level categories have a slightly bolder treatment. Child categories are indented proportionally to their depth.
+
+### Adding Categories
+- **"+ Add Category"** button adds a new top-level category — inline input appears at the bottom of the top-level list
+- **Add child icon** on any node adds a subcategory — inline input appears as a child of that node
+- Press Enter to confirm, Escape to cancel
+- Category names must be unique within the same parent level (case-insensitive)
+
+### Renaming
+Click edit icon → name becomes inline editable → Enter to confirm, Escape to cancel.
+
+### Reordering
+Drag handle allows reordering within the same level. Cannot drag a category to become a child of a different parent via drag — that would require a separate "move" action (defer this to later, keep it simple for now). Order persists to database on drop.
+
+### Archive Behavior
+Same pattern as other managed lists:
+- If category has 0 items assigned AND 0 children: archive immediately
+- If category has items assigned OR has children: show confirmation — "Archiving [Name] will also archive all subcategories and unassign [X] products/services from this category. They can be reassigned after. Continue?"
+- Archived categories hidden from tree by default
+- "Show Archived" toggle above tree (right-aligned) reveals archived nodes with muted styling and Restore option
+- Hard delete only available on archived categories with 0 items and 0 children
+
+### Empty State
+If no categories exist:
+- Icon + "No income categories yet"
+- Body: "Set up your chart of accounts to enable financial reporting. You can build your own structure or load our recommended template for aesthetic practices."
+- Two buttons: "Load Playbook Template" and "+ Add Category"
+
+---
+
+## Change 4: Playbook Template
+
+Clicking "Load Playbook Template" shows a confirmation:
+"This will load a recommended category structure for aesthetic practices. You can customize it after loading. Any existing categories will not be affected."
+Confirm: "Load Template" / Cancel.
+
+On confirm, pre-load the following tree if those top-level categories don't already exist (do not duplicate):
+
+```
+Surgical
+  └ Face
+      └ Facelift
+      └ Rhinoplasty
+      └ Blepharoplasty
+      └ Brow Lift
+      └ Neck Lift
+  └ Breast
+      └ Augmentation
+      └ Lift
+      └ Reduction
+  └ Body
+      └ Tummy Tuck
+      └ Liposuction
+      └ Body Contouring
+  └ Hair
+      └ Hair Transplant
+Non-Surgical
+  └ Injectables
+      └ Botox / Neurotoxin
+      └ Dermal Fillers
+  └ Lasers & Energy
+      └ Laser Resurfacing
+      └ Laser Hair Removal
+      └ Body Contouring (Non-Surgical)
+  └ Aesthetician Services
+      └ Facials
+      └ Chemical Peels
+      └ Microneedling
+Anesthesia
+Facility Fees
+```
+
+Anesthesia and Facility Fees are top-level since they cross procedure categories.
+
+---
+
+## Technical Notes
+
+### Database Model
+
+```prisma
+model IncomeCategory {
+  id          String    @id @default(cuid())
+  name        String
+  parentId    String?
+  parent      IncomeCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    IncomeCategory[] @relation("CategoryTree")
+  sortOrder   Int       @default(0)
+  status      CategoryStatus @default(ACTIVE)
+  practiceId  String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+enum CategoryStatus {
+  ACTIVE
+  ARCHIVED
+}
+```
+
+### Tax Settings on Practice Model
+Add `defaultTaxRate` (Decimal, nullable) to the Practice model.
+
+### API Routes
+- `GET /api/settings/income-categories` — fetch full tree for practice
+- `POST /api/settings/income-categories` — create category (with optional parentId)
+- `PATCH /api/settings/income-categories/:id` — rename, reorder
+- `PATCH /api/settings/income-categories/:id/archive` — archive
+- `PATCH /api/settings/income-categories/:id/restore` — restore
+- `DELETE /api/settings/income-categories/:id` — permanent delete (archived, 0 items, 0 children only)
+- `POST /api/settings/income-categories/load-playbook` — load template
+- `GET /api/settings/tax` — get tax settings
+- `PATCH /api/settings/tax` — update default tax rate
+
+### Clerk Org Scoping
+All operations scoped to current Clerk Organization (practiceId from org context).
+
+---
+
+## Delivery Checklist
+- [ ] Finances section added to Settings sidebar with correct sub-items
+- [ ] Income Categories and Tax Settings functional, Products & Services shows Coming Soon
+- [ ] Tax Settings page saves default tax rate to practice record
+- [ ] Income Categories page renders with correct header, buttons, and empty state
+- [ ] Hierarchical tree renders correctly with expand/collapse
+- [ ] Add top-level category works with inline input
+- [ ] Add child category works from any node
+- [ ] Rename works inline
+- [ ] Drag-and-drop reorder works within same level and persists
+- [ ] Archive works with correct confirmation behavior based on children/items
+- [ ] Show Archived toggle works
+- [ ] Restore works on archived categories
+- [ ] Hard delete only available on archived categories with 0 items and 0 children
+- [ ] Load Playbook Template loads correct tree structure
+- [ ] Template does not duplicate existing top-level categories
+- [ ] IncomeCategory model created and migrated
+- [ ] defaultTaxRate added to Practice model and migrated
+- [ ] All API routes working correctly
+- [ ] Clerk org scoping applied to all operations
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

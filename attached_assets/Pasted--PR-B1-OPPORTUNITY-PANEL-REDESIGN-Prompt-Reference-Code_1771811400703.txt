@@ -1,0 +1,133 @@
+# PR-B1 — OPPORTUNITY PANEL REDESIGN
+
+## Prompt Reference
+Code: PR-B1 | Revision to opportunity panel — layout compression, inherit button fix, remove Activity tab, add audit log dialog
+Run on LOW AUTONOMY — this is a UI/layout change only. Do not touch data models, API routes, or pipeline board.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+**Run this prompt before PR-B2.** PR-B2 builds on the updated panel layout established here. Run PR-B1 first and verify it before proceeding to PR-B2.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- This is a layout and UI revision only — do not modify any data models, schema, or API routes.
+- Only modify files necessary to implement the visual and layout changes described below.
+- When complete: verify the opportunity panel opens without errors, all fields remain functional, everything above the tabs is visible without scrolling on a standard 1280px wide display, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+The opportunity panel currently has too much vertical space consumed by the header area (patient card, coordinator/provider, tags, source, procedures), requiring users to scroll before reaching the tab content. This prompt compresses the layout so everything above the tabs is visible without scrolling. It also fixes the inherit button icon and moves the audit log out of the tab row into a subtle icon trigger.
+
+---
+
+## Change 1: Layout Compression — Above the Tabs
+
+### Goal
+Everything above the tab row (Overview, Appointments, Finances, Forms) must be visible without scrolling on a standard screen. Achieve this through tighter spacing and smarter information grouping — not by removing information.
+
+### Patient Card — Compact Layout
+Current: Patient name in green as a large clickable link, email and phone stacked below it in a bordered card with generous padding, large empty space to the right.
+
+New layout:
+- Patient name (green, clickable) on the left
+- Email and phone inline to the right of or directly below the name, on one line if space allows, using smaller text and subtle icons (envelope, phone)
+- Remove the bordered card container — integrate this information directly into the panel header area without a separate card visual
+- Reduce overall height of this section significantly
+
+### Coordinator + Provider Row
+- Reduce vertical padding on this row
+- The two-column layout is correct — keep it
+- Just tighten the height so it feels like a compact form row, not a tall card
+
+### Source Field
+- Move source up — it should sit in the same visual zone as coordinator/provider, not as its own separate full-width section below tags
+- Consider a two-column row: left = Source (with chain icon inherit button), right = empty or a future field
+- Label "SOURCE" in the same small uppercase style as COORDINATOR and PROVIDER
+
+### Tags + Procedures
+- These should remain as chip rows but with tighter vertical spacing
+- Tags row and Procedures row can sit closer together — they are related concepts
+- "+ Tag" and "+ Procedure" affordances should be compact and unobtrusive
+
+### General Spacing
+- Audit the padding between every section above the tabs and reduce where generous
+- Target: the full header area (everything above the tab row) should fit in approximately 220-240px of vertical space
+
+---
+
+## Change 2: Inherit Button — Chain Icon
+
+### Current
+A download icon sits next to the Source dropdown, which is visually misleading.
+
+### New
+Replace with a chain/link icon (two connected chain links — standard "link" metaphor used in Notion, Linear, Figma).
+
+### Behavior (unchanged)
+- On click: copies patient primary source into the opportunity source field (one-time copy, not a live link)
+- On hover: tooltip reads "Inherit source from patient record"
+- No other behavior changes
+
+---
+
+## Change 3: Remove Activity Tab
+
+Remove "Activity" from the tab row entirely. The tab row should now read:
+**Overview | Appointments | Finances | Forms**
+
+Do not delete any underlying activity/audit data that may exist — only remove the tab UI element. The data will be surfaced via the audit log dialog in Change 4.
+
+---
+
+## Change 4: Audit Log Dialog (Magnifying Glass Icon)
+
+### Trigger
+A small magnifying glass icon positioned in the bottom-right corner of the opportunity panel. It should be:
+- Subtle — low opacity or muted color in its default state (not demanding attention)
+- Slightly more visible on hover
+- Always accessible regardless of which tab is active
+
+### On Click
+Opens a small dialog or popover (not a full modal) anchored to or near the icon. The dialog shows the audit log for this opportunity.
+
+### Audit Log Display
+Each entry shows:
+- **Event type** — e.g., "Stage Changed", "Field Updated", "Opportunity Created", "Source Updated"
+- **Detail** — e.g., "New Inquiry → Consult Booked", "Source set to Google Organic"
+- **User** — first name + last name of the logged-in user who made the change
+- **Timestamp** — relative time (e.g., "2 days ago") with full date/time on hover
+
+Entries are listed in reverse chronological order (newest first). The dialog itself can scroll if there are many entries.
+
+### Empty State
+"No activity recorded yet." if no audit entries exist.
+
+### Data
+Use whatever audit/activity data currently exists in the system. If no audit logging is currently implemented for opportunities, log at minimum: opportunity creation event, stage changes, and source field changes going forward from this prompt. Do not backfill historical data.
+
+---
+
+## Delivery Checklist
+- [ ] Everything above the tab row visible without scrolling at 1280px width
+- [ ] Patient card layout compressed, dead space eliminated
+- [ ] Coordinator/Provider row height reduced
+- [ ] Source field repositioned into compact row layout
+- [ ] Tags and Procedures rows tightened
+- [ ] Chain icon replaces download icon on inherit button
+- [ ] Tooltip on chain icon reads "Inherit source from patient record"
+- [ ] Activity tab removed from tab row
+- [ ] Magnifying glass icon present in bottom-right corner of panel
+- [ ] Magnifying glass icon is subtle in default state, more visible on hover
+- [ ] Clicking icon opens audit log dialog
+- [ ] Audit log shows event type, detail, user, and timestamp
+- [ ] Audit log is in reverse chronological order
+- [ ] Empty state handled gracefully
+- [ ] No TypeScript errors, no console errors
+- [ ] All existing panel functionality (tabs, fields, chips, dropdowns) still works correctly
+
+## END OF PROMPT

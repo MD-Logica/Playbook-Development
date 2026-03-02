@@ -1,0 +1,198 @@
+# PP-B1 — PIPELINE FILTER OVERHAUL + SAVED FILTERS
+
+## Prompt Reference
+Code: PP-B1 | Pipeline filter panel overhaul — fix broken filters, add new criteria, saved filters with public/private visibility, remove sort button
+Run on MEDIUM AUTONOMY — touches filter panel UI, filter logic, and introduces a new SavedFilter data model.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+No dependencies on other in-progress prompts. Can be run independently. Assumes PP-A2 (Managed Lists — Lead Sources, Procedure Types, Tags) is already implemented and those tables exist in the database.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- The existing quick filter pills (My Leads, Rotting Only, High Value, Unassigned) are working correctly — do not touch them except to accommodate saved filter pills alongside them.
+- The existing "Filtered" indicator and "Filter (X)" button state are working correctly — preserve them.
+- The existing "X of Y" column count display when filters are active is working correctly — preserve it.
+- Only modify or create files necessary to implement the changes described below.
+- When complete: verify all filter criteria work correctly, the panel toggles open and closed, the sort button is gone, saved filters can be created/edited/deleted/starred, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+The pipeline filter panel exists and is partially working. The following issues need to be resolved and new functionality added:
+1. Procedure filter is broken — pulling lead card titles instead of ProcedureType managed list values
+2. Filter panel does not close when the Filter button is clicked a second time
+3. Sort button exists but does nothing — remove it
+4. Additional filter criteria need to be added
+5. Saved filters with public/private visibility need to be introduced
+
+---
+
+## Fix 1: Filter Button Toggle + Close Behavior
+
+### Problem
+Clicking the Filter button when the panel is already open does not close it.
+
+### Fix
+- Filter button must toggle the panel open and closed on each click
+- Additionally, add a subtle X icon inside the filter panel itself (top-right corner of the panel) as a secondary close affordance
+- Clicking anywhere outside the panel (on the pipeline board) should also close it — this behavior may already exist, preserve it
+
+---
+
+## Fix 2: Remove Sort Button
+
+Remove the Sort button from the pipeline toolbar entirely. Do not replace it with anything. Clean up the toolbar spacing after removal.
+
+---
+
+## Fix 3: Procedure Filter — Pull from Managed List
+
+### Problem
+The Procedure filter currently lists lead card titles (e.g., "Botox - James", "Botox Recall - Michael") instead of procedure types from the ProcedureType managed list.
+
+### Fix
+The Procedure filter must query active ProcedureTypes from the managed list and display those as filterable options. When a procedure type is selected, it filters opportunities where that ProcedureType is linked via the OpportunityProcedure join table (implemented in PR-A1).
+
+### Interaction
+- Multi-select checklist (same as current Assigned To pattern)
+- Options pulled from active ProcedureTypes only
+- Selecting multiple procedures shows opportunities matching ANY of the selected procedures (OR logic)
+
+---
+
+## Change 1: Add New Filter Criteria
+
+Add the following filter fields to the custom filters section of the panel, below the existing fields:
+
+### Lead Source
+- Multi-select checklist
+- Options pulled from active LeadSources managed list
+- Filters opportunities where opportunity-level source matches selection
+- Label: "Lead Source"
+
+### Tag
+- Multi-select checklist
+- Options pulled from active Tags managed list
+- Filters opportunities where the linked patient has any of the selected tags
+- Label: "Tag"
+
+### Provider
+- Multi-select checklist
+- Options pulled from active staff/providers in the practice
+- Filters opportunities where the assigned provider matches selection
+- Label: "Provider"
+
+### Value Range
+- Two number inputs: "Min $" and "Max $"
+- Filters opportunities where estimated value falls within the range
+- Either field can be used independently (min only, max only, or both)
+- Label: "Estimated Value"
+
+### Filter Panel Order (top to bottom)
+1. Created Date (existing)
+2. Last Activity (existing)
+3. Procedure (fixed)
+4. Lead Source (new)
+5. Tag (new)
+6. Assigned To (existing)
+7. Provider (new)
+8. Estimated Value (new)
+
+---
+
+## Change 2: Saved Filters
+
+### Data Model
+
+```prisma
+model SavedFilter {
+  id          String   @id @default(cuid())
+  name        String
+  filters     Json     // serialized filter state
+  visibility  FilterVisibility
+  isStarred   Boolean  @default(false)
+  createdBy   String   // userId
+  practiceId  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum FilterVisibility {
+  PUBLIC   // visible to all practice members
+  PRIVATE  // visible only to the creator
+}
+```
+
+### Saving a Filter
+
+When at least one filter is active, a "Save filter..." text link appears at the bottom of the filter panel, between Clear All and Apply Filters.
+
+Clicking it expands an inline form directly within the panel (no modal):
+- Text input: "Filter name" (required, max 48 characters)
+- Toggle: "Private" / "Public" — default to Private
+- Two buttons inline: "Save" (primary) and "Cancel" (text link)
+
+On save: filter is stored, panel returns to normal state, saved filter appears in quick access row if starred.
+
+### Saved Filters Section in Panel
+
+Below the custom filter fields and above the Clear All / Apply Filters row, add a "Saved Filters" section with a subtle section label.
+
+Each saved filter shows:
+- Filter name
+- Visibility badge ("Public" or "Private") — subtle, small
+- Star icon to toggle starred/favorited status
+- Edit icon (pencil) — opens the same inline form pre-populated with current name and visibility
+- Delete icon (trash) — confirmation: "Delete [name]? This cannot be undone." Confirm / Cancel
+- Clicking the filter name applies that saved filter set immediately
+
+Only show saved filters the current user can see: their own private filters + all public filters.
+
+### Starred Filters in Quick Access Row
+
+Starred saved filters appear as pills in the quick filter row at the top of the panel, alongside My Leads, Rotting Only, High Value, Unassigned.
+
+- Same pill style as existing quick filters
+- Clicking applies the saved filter
+- A small star icon on the pill differentiates them from system quick filters
+- If no filters are starred, the quick filter row looks exactly as it does today
+
+### API Routes
+- `GET /api/pipeline/saved-filters` — fetch saved filters visible to current user
+- `POST /api/pipeline/saved-filters` — create saved filter
+- `PATCH /api/pipeline/saved-filters/:id` — update name, visibility, isStarred
+- `DELETE /api/pipeline/saved-filters/:id` — delete (only if createdBy = current user)
+
+---
+
+## Delivery Checklist
+- [ ] Filter button toggles panel open and closed on each click
+- [ ] X icon inside panel closes it
+- [ ] Sort button removed from toolbar
+- [ ] Procedure filter pulls from ProcedureType managed list, not lead titles
+- [ ] Procedure filter correctly filters by OpportunityProcedure join
+- [ ] Lead Source filter added, pulls from LeadSource managed list
+- [ ] Tag filter added, pulls from Tag managed list, filters by patient tags
+- [ ] Provider filter added, pulls from practice staff/providers
+- [ ] Estimated Value range filter added, min/max work independently
+- [ ] Filter panel order matches spec
+- [ ] SavedFilter model created and migrated
+- [ ] "Save filter..." link appears when filters are active
+- [ ] Inline save form works with name input and public/private toggle
+- [ ] Saved filters section appears in panel with correct actions
+- [ ] Edit and delete work correctly on saved filters
+- [ ] Starred filters appear as pills in quick filter row
+- [ ] Applying a saved filter populates the filter panel with correct values
+- [ ] Public filters visible to all practice members
+- [ ] Private filters visible only to creator
+- [ ] Existing quick filter pills (My Leads, Rotting, High Value, Unassigned) unchanged
+- [ ] "Filtered" indicator and "Filter (X)" button state preserved
+- [ ] "X of Y" column counts preserved
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

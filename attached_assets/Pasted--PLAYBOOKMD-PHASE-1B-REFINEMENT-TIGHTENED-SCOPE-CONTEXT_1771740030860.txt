@@ -1,0 +1,209 @@
+# PLAYBOOKMD — PHASE 1B REFINEMENT (TIGHTENED SCOPE)
+
+## CONTEXT
+
+The dashboard structure is working correctly. Data is pulling from the database. The layout, empty states, and component structure are all fine — do not change them. This is a targeted visual polish pass covering exactly five things. Do not go outside this scope.
+
+Run on HIGH AUTONOMY within these five areas only.
+
+---
+
+## FIX 1: KPI CARD VISUAL DIFFERENTIATION
+
+Each card needs a distinct identity based on its meaning. Right now all four look identical. Apply the following per-card treatment:
+
+**Card 1 — Today's Appointments** (neutral)
+- Left border: `border-left: 3px solid #10B981` (emerald)
+- Icon container: background `#D1FAE5`, icon color `#059669`
+- Zero state sub-label: "No appointments today" instead of "0 confirmed · 0 pending"
+- Zero state number: show "—" instead of "0"
+
+**Card 2 — Confirmed Today** (positive)
+- Left border: `border-left: 3px solid #10B981` (emerald)
+- Icon container: background `#D1FAE5`, icon color `#10B981`, icon `CheckCircle2`
+- Zero state sub-label: "Nothing to confirm yet"
+- Zero state number: show "—"
+
+**Card 3 — Needs Attention** (warning — but zero here is GOOD news)
+- Left border: `border-left: 3px solid #F59E0B` (amber) — always visible regardless of value
+- Icon container: background `#FEF3C7`, icon color `#D97706`
+- Zero state sub-label: "All clear ✓" — celebrate the zero
+- Zero state number: show "0" (zero IS the good result here)
+
+**Card 4 — Pipeline Alerts** (dynamic — changes based on value)
+- When value > 0:
+  - Left border: `border-left: 3px solid #EF4444` (red)
+  - Icon container: background `#FEE2E2`, icon color `#EF4444`, icon `TrendingDown`
+  - Sub-label: "[X] leads needing follow-up"
+- When value = 0:
+  - Left border: `border-left: 3px solid #10B981` (emerald)
+  - Icon container: background `#D1FAE5`, icon color `#10B981`, icon `TrendingUp`
+  - Sub-label: "Pipeline is healthy"
+
+**All cards — typography upgrades:**
+- Number: 32px, weight 800, letter-spacing -0.5px
+- Label: 11px, uppercase, letter-spacing 0.08em, `--text-muted`
+- Sub-label: 12px, `--text-muted`, 6px gap below number
+- Remove hover transform/lift effect entirely — cards are not interactive yet
+
+**Important — border rendering fix for all cards:**
+Implement the left accent border correctly to avoid rendering artifacts:
+```css
+border: 1px solid var(--border-default);
+border-left: 3px solid [color]; /* overrides just the left side */
+border-radius: 10px;
+```
+Do NOT use pseudo-elements, box-shadow, or absolute positioned elements for the accent bar.
+
+---
+
+## FIX 2: NUMBER COUNT-UP ANIMATION
+
+When KPI data loads, animate each number counting up from 0 to its final value. This is purely visual — it makes the dashboard feel alive when you land on it.
+
+Implement this hook in `hooks/useCountUp.ts`:
+
+```typescript
+import { useState, useEffect } from 'react';
+
+export function useCountUp(target: number, duration: number = 800, delay: number = 0) {
+  const [count, setCount] = useState(0);
+  
+  useEffect(() => {
+    if (target === 0) { setCount(0); return; }
+    
+    const timeout = setTimeout(() => {
+      const start = Date.now();
+      const timer = setInterval(() => {
+        const elapsed = Date.now() - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+        setCount(Math.round(target * eased));
+        if (progress >= 1) {
+          setCount(target);
+          clearInterval(timer);
+        }
+      }, 16);
+      return () => clearInterval(timer);
+    }, delay);
+    
+    return () => clearTimeout(timeout);
+  }, [target, duration, delay]);
+  
+  return count;
+}
+```
+
+Apply to each KPI card with staggered delays:
+- Card 1: `useCountUp(todayTotal, 600, 0)`
+- Card 2: `useCountUp(todayConfirmed, 600, 80)`
+- Card 3: `useCountUp(todayPending, 600, 160)`
+- Card 4: `useCountUp(rottingLeads, 600, 240)`
+
+For cards showing "—" at zero, still run the hook but conditionally render "—" if target === 0.
+
+---
+
+## FIX 3: PAGE LOAD STAGGER ANIMATION
+
+Add a subtle cascade entrance animation when the dashboard loads. This plays once on mount and makes the page feel intentional rather than static.
+
+Add to `globals.css`:
+```css
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+```
+
+Apply inline styles or className assignments with these exact delays:
+- Page header: `animation: fadeUp 280ms ease-out 0ms both`
+- KPI card 1: `animation: fadeUp 280ms ease-out 60ms both`
+- KPI card 2: `animation: fadeUp 280ms ease-out 110ms both`
+- KPI card 3: `animation: fadeUp 280ms ease-out 160ms both`
+- KPI card 4: `animation: fadeUp 280ms ease-out 210ms both`
+- Left column (schedule): `animation: fadeUp 280ms ease-out 270ms both`
+- Right column (alerts + quotes): `animation: fadeUp 280ms ease-out 310ms both`
+
+The `both` fill-mode is critical — it keeps elements invisible before their animation starts and locked in place after. Without it elements will flash visible then animate.
+
+---
+
+## FIX 4: SIDEBAR LOGO
+
+Replace the current hamburger icon + "PlaybookMD" text with the proper brand mark treatment.
+
+```tsx
+<div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 16px', height: '56px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+  <svg width="24" height="24" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <defs>
+      <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#10B981" stopOpacity="1" />
+        <stop offset="100%" stopColor="#064E3B" stopOpacity="1" />
+      </linearGradient>
+    </defs>
+    <rect x="5" y="30" width="32" height="18" fill="url(#logoGrad)" opacity="0.4" rx="3"/>
+    <rect x="13" y="22" width="32" height="18" fill="url(#logoGrad)" opacity="0.7" rx="3"/>
+    <rect x="21" y="14" width="32" height="18" fill="url(#logoGrad)" rx="3"/>
+  </svg>
+  <span style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-0.3px', color: 'white' }}>
+    Playbook<span style={{ color: '#10B981' }}>MD</span>
+  </span>
+</div>
+```
+
+---
+
+## FIX 5: PENDING APPOINTMENT STATUS PULSE
+
+In the Today's Schedule appointment list, any row with status PENDING should have its status indicator dot pulse softly to draw attention to unconfirmed appointments.
+
+Add to `globals.css`:
+```css
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-dot-pending {
+  animation: pulse-dot 2s ease-in-out infinite;
+  background-color: #F59E0B;
+}
+```
+
+Apply `.status-dot-pending` to the status indicator dot on PENDING appointment rows only. All other status dots are static.
+
+---
+
+## WHAT NOT TO CHANGE
+
+- Do not modify the layout, column widths, or card structure
+- Do not change the empty state design for Today's Schedule
+- Do not add or remove any navigation items
+- Do not modify API routes or data fetching logic
+- Do not add hover lift/transform effects to KPI cards
+- Do not add Quick Action buttons or any new UI elements not listed above
+- Do not modify the Prisma schema
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Each KPI card has a distinct left accent border color
+- [ ] Cards 1 and 2 show "—" at zero with contextual sub-labels
+- [ ] Card 3 shows "0" at zero with "All clear ✓" — zero is celebrated
+- [ ] Card 4 switches between red/emerald treatment based on value
+- [ ] Border rendering is clean — no offset artifacts on any card
+- [ ] Number count-up animation plays on data load with staggered delays
+- [ ] Page load fade-up cascade plays on mount — all 7 elements animate in sequence
+- [ ] Sidebar shows inline SVG logo mark + "Playbook" white + "MD" emerald
+- [ ] PENDING appointment dots pulse softly
+- [ ] No hover lift effects on KPI cards
+- [ ] No TypeScript errors
+- [ ] No console errors

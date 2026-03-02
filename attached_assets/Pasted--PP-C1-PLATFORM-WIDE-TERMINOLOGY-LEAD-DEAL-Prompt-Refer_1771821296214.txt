@@ -1,0 +1,93 @@
+# PP-C1 — PLATFORM-WIDE TERMINOLOGY: LEAD → DEAL
+
+## Prompt Reference
+Code: PP-C1 | Pure UI terminology sweep — rename "Lead" to "Deal" across the entire platform
+Run on LOW AUTONOMY — this is a find-and-replace across UI text only. Do not change any logic, data models, API routes, or database field names.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+**Run this prompt before PP-C2.** PP-C2 builds the "Add New Deal" flow and assumes terminology is already updated. Run PP-C1 first and verify before proceeding.
+
+## Replit Instructions
+- This is a UI text change ONLY. Do not rename database columns, model fields, API route paths, or internal variable names.
+- Only change user-facing display text — labels, buttons, headers, empty states, tooltips, placeholder text, and toast notifications.
+- Internal code variables, database fields, and API routes can keep their existing names (e.g., `opportunity`, `lead`) — only what the user sees in the UI changes.
+- When complete: do a thorough check across all pages and components to ensure no instances of "Lead" or "Leads" remain in user-facing text.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+The platform currently uses "Lead" and "Leads" inconsistently alongside "Opportunity" and "Opportunities" in various places. The decision has been made to standardize all user-facing terminology to "Deal" and "Deals" across the entire platform. This applies everywhere a user can see text — no exceptions.
+
+---
+
+## Terminology Mapping
+
+| Current Text | New Text |
+|---|---|
+| Lead | Deal |
+| Leads | Deals |
+| New Lead | New Deal |
+| Add Lead | Add Deal |
+| + Add Lead | + Add Deal |
+| My Leads | My Deals |
+| Open Leads | Open Deals |
+| Lead Source | Source (short form) or "Deal Source" where full label needed |
+| Lead Title | Deal Title |
+| Add New Lead | Add New Deal |
+| Quick Add Lead | Add Deal |
+| Rotting Leads | Rotting Deals |
+| Stalled (leads) | Stalled (keep as-is, it's not a noun) |
+| No leads yet | No deals yet |
+| Opportunity | Deal |
+| Opportunities | Deals |
+| Open Opportunities | Open Deals |
+| New Inquiry (stage name) | New Inquiry (keep — this is a stage name, not a record type) |
+
+## Important Distinctions
+- **Stage names are NOT changed** — "New Inquiry", "Consult Booked", "Quote Sent" etc. are stage names that describe where a deal is in the funnel. Do not rename these.
+- **"Lead Source" field label** — rename to "Source" on all forms and panels for brevity. The Settings page section can remain "Lead Sources" as that is the name of the managed list.
+- **Pipeline name** — "Surgical Pipeline", "Non-Surgical Pipeline" etc. are pipeline names, not record types. Do not change these.
+
+---
+
+## Pages and Components to Update
+
+Audit and update every instance across all of the following:
+
+- Pipeline board (column headers, card labels, toolbar buttons, filter panel)
+- Patient profile (Open Opportunities/Leads section, Add button)
+- New deal creation modal (title, field labels, button text)
+- Opportunity/deal panel slide-out (all labels)
+- Activity log entries (e.g., "Lead created" → "Deal created")
+- Empty states across pipeline and patient profile
+- Toast notifications (e.g., "Lead created successfully" → "Deal created successfully")
+- Settings pages (where "lead" appears in UI text)
+- Dashboard (any mentions of leads/opportunities)
+- Reports page (any mentions)
+- Navigation items if any reference leads
+- Filter panel quick filters (My Leads → My Deals)
+- Search placeholder text if it references leads
+- Any tooltips referencing leads or opportunities
+
+---
+
+## Delivery Checklist
+- [ ] All instances of "Lead" / "Leads" in user-facing text updated to "Deal" / "Deals"
+- [ ] All instances of "Opportunity" / "Opportunities" in user-facing text updated to "Deal" / "Deals"
+- [ ] Stage names left unchanged
+- [ ] Pipeline names left unchanged
+- [ ] "Lead Sources" managed list label in Settings left unchanged
+- [ ] "Source" used as short form field label on forms and panels
+- [ ] Database field names, API routes, and internal variables unchanged
+- [ ] Activity log entries updated
+- [ ] Toast notifications updated
+- [ ] Empty states updated
+- [ ] No TypeScript errors, no console errors
+- [ ] Full visual audit confirms no remaining "Lead" or "Opportunity" text visible to users
+
+## END OF PROMPT

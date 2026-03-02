@@ -1,0 +1,95 @@
+# PR-A2 — OPPORTUNITY PANEL: SOURCE FIELD + PROCEDURE CHIPS + PATIENT PRIMARY SOURCE EDIT
+
+## Prompt Reference
+Code: PR-A2 | Revision to opportunity panel and patient profile — opportunity-level lead source, inherit button, procedure chips, editable patient primary source
+Run on MEDIUM AUTONOMY — touches opportunity panel, patient profile, and data display logic.
+
+## Prompt Order & Dependencies
+**Run PR-A1 first.** This prompt depends on the OpportunityProcedure join table and multi-select chip pattern established in PR-A1. Do not run this prompt until PR-A1 is complete and verified.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify files necessary to implement the changes described below.
+- The opportunity panel and patient profile are both working — make targeted additions only.
+- When complete: verify all three changes work without errors, the inherit button correctly copies patient primary source to opportunity source, procedure chips display and are editable on the panel, and patient primary source is editable on the profile.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+PR-A1 updated the lead creation form with multi-select procedure chips and set patient-level primary source at creation time. This prompt adds three targeted changes to the opportunity panel and patient profile: (1) an opportunity-level lead source field, (2) an editable procedure of interest chip display on the opportunity panel, and (3) making the patient-level primary source editable on the patient profile (currently read-only).
+
+---
+
+## Change 1: Opportunity-Level Lead Source Field
+
+### Where
+On the opportunity panel (the slide-out panel that opens when clicking an opportunity from the pipeline or patient profile).
+
+### Behavior
+Add a "Source" field to the opportunity panel. This is separate and independent from the patient-level primary source.
+
+### Default State
+**Blank by default.** Do not inherit or pre-fill from the patient primary source automatically. Staff must intentionally set it.
+
+### Inherit Button
+Next to the Source field, display a small icon button (a downward arrow or link icon — something that visually suggests "pull from above"). 
+
+- Tooltip on hover: "Inherit from patient's primary source"
+- On click: populates the opportunity Source field with the patient's current primarySource value
+- This is a one-time copy — it does not create a live link. If the patient's primary source changes later, the opportunity source is unaffected.
+- If the opportunity source already has a value, clicking inherit replaces it (no confirmation needed — it's easily undoable by editing the field)
+
+### Editing
+The Source field is a dropdown pulling from active LeadSources (same managed list). Staff can select any value or clear it.
+
+### Data Model
+Add `sourceId` (foreign key to LeadSource) to the Opportunity model if not already present. This is distinct from the patient-level `primarySourceId` on the Patient model.
+
+---
+
+## Change 2: Procedure of Interest Chips on Opportunity Panel
+
+### Where
+On the opportunity panel, replacing or updating the current procedure of interest display.
+
+### Behavior
+Display the selected procedures as chips, consistent with the chip pattern from PR-A1 and the existing tag chip style.
+
+### Editing
+- An edit icon or "+ Add Procedure" affordance lets staff open the procedure picker
+- Same multi-select chip interaction as the lead creation form (PR-A1)
+- Staff can add or remove procedures directly from the opportunity panel
+- Changes save immediately (or on a confirm action — use whichever pattern is consistent with how other fields on the panel save)
+
+### Title Sync
+If the opportunity title was auto-generated (not manually edited), updating the procedures here should re-trigger the title generation logic from PR-A1 to keep it current. If the title was manually edited, do not touch it.
+
+---
+
+## Change 3: Patient Primary Source — Editable on Patient Profile
+
+### Where
+The patient profile, under the Referrals section (currently shows "Primary Source: Google Ads" as read-only text).
+
+### Behavior
+Make this field editable. Clicking it or an adjacent edit icon opens an inline dropdown or small popover with the active LeadSources list. Selecting a value saves it to `patient.primarySource`.
+
+### Design
+Keep it lightweight — inline edit or a small popover, not a full modal. Consistent with how other inline fields are edited elsewhere in the app. Should not feel heavy for what is a simple single-field edit.
+
+---
+
+## Delivery Checklist
+- [ ] Opportunity panel has a Source field, blank by default
+- [ ] Source field pulls from active LeadSources managed list
+- [ ] Inherit button present next to Source field with correct tooltip
+- [ ] Inherit button copies patient primarySource to opportunity source on click
+- [ ] Inherit does not create a live link — one-time copy only
+- [ ] Procedure of interest displays as chips on opportunity panel
+- [ ] Chips are editable (add/remove) directly from the panel
+- [ ] Auto-generated titles re-sync when procedures are updated (if not manually edited)
+- [ ] Patient primary source field is editable inline on patient profile
+- [ ] Patient primary source saves correctly to patient record
+- [ ] No TypeScript errors, no console errors
+- [ ] All three changes work without disrupting existing opportunity panel or patient profile functionality

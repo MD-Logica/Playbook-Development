@@ -1,0 +1,152 @@
+# PR-B2 — WON/LOST TERMINAL STAGES + COLLAPSIBLE PIPELINE COLUMNS
+
+## Prompt Reference
+Code: PR-B2 | Adds Won/Lost terminal stages to opportunity panel and collapsible Won/Lost columns to pipeline board
+Run on MEDIUM AUTONOMY — touches schema, API routes, opportunity panel, and pipeline board.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+**Run PR-B1 first.** This prompt builds on the updated opportunity panel layout from PR-B1. Verify PR-B1 is complete before running this prompt.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only create or modify files necessary to implement Won/Lost stages as described below.
+- When complete: verify Won and Lost buttons appear in the stage dropdown, Lost reason modal works and requires a selection before submitting, Won confirmation works, closed opportunities disappear from active pipeline columns, Won/Lost columns appear collapsed at the far right of the board, columns expand and collapse correctly, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+Currently all opportunities live in active pipeline stages with no way to mark them as closed. This prompt adds Won and Lost as terminal states, a lost reason capture flow, and collapsible Won/Lost columns on the pipeline board.
+
+---
+
+## Change 1: Schema Updates
+
+Add the following fields to the Opportunity model:
+
+```prisma
+model Opportunity {
+  // ... existing fields ...
+  closedStatus  ClosedStatus?        // null = active, WON or LOST when closed
+  lostReason    LostReason?          // required when closedStatus = LOST
+  lostNote      String?              // optional free-text note
+  closedAt      DateTime?            // timestamp when marked Won or Lost
+}
+
+enum ClosedStatus {
+  WON
+  LOST
+}
+
+enum LostReason {
+  COMPETITOR
+  PRICE_BUDGET
+  UNRESPONSIVE
+  NOT_A_CANDIDATE
+  DISTANCE_LOCATION
+  OTHER
+}
+```
+
+Run migration after schema update.
+
+---
+
+## Change 2: Won/Lost in Stage Dropdown
+
+### Location
+Inside the existing stage dropdown on the opportunity panel, at the bottom of the stage list, visually separated from active stages by a subtle divider line.
+
+### Layout
+Two buttons side by side in a two-column row:
+- **Left:** Green "Won" button
+- **Right:** Red "Lost" button
+
+These sit below the active stage options and the divider. They should not look like regular stage options — style them as action buttons to signal they are terminal actions, not just another stage to move to.
+
+### Won Flow
+Clicking "Won":
+1. Opens a small confirmation dialog: "Mark this opportunity as Won? This will remove it from the active pipeline."
+2. Two buttons: "Confirm" (green) and "Cancel"
+3. On confirm: sets `closedStatus = WON`, `closedAt = now()`, removes opportunity from active pipeline board, moves to Won column
+
+### Lost Flow
+Clicking "Lost":
+1. Opens a modal with:
+   - Heading: "Mark as Lost"
+   - Required single-select dropdown labeled "Reason" with options:
+     - Competitor
+     - Price / Budget
+     - Unresponsive
+     - Not a Candidate
+     - Distance / Location
+     - Other
+   - Optional textarea labeled "Notes" — placeholder: "Add any additional context..."
+   - Two buttons: "Mark as Lost" (red, disabled until reason is selected) and "Cancel"
+2. On submit: sets `closedStatus = LOST`, `lostReason`, `lostNote`, `closedAt = now()`, removes from active pipeline, moves to Lost column
+
+---
+
+## Change 3: Collapsible Won/Lost Columns on Pipeline Board
+
+### Position
+Two new columns appended at the far right of the pipeline board, after all active stage columns:
+1. **Won** (leftmost of the two)
+2. **Lost** (rightmost)
+
+### Collapsed State (default)
+- Slim vertical pill/column (~48px wide)
+- Muted color — soft green tint for Won, soft red tint for Lost (not full saturated green/red — subtle)
+- Vertical label text: "WON" or "LOST"
+- Small count badge showing number of opportunities in that column
+- A subtle expand chevron (→) indicating it can be opened
+- Does not draw attention away from active columns — this is a quiet presence on the board
+
+### Expanded State
+- Full column width matching active stage columns
+- Column header: "Won" or "Lost" with count, and a collapse chevron (←) to close it
+- Full green header treatment for Won, full red header treatment for Lost (consistent with how active stage column headers are styled but with their respective colors)
+- Opportunity cards displayed normally within the column
+- Cards in Won/Lost columns are read-only — no drag and drop out of these columns
+- A "Reopen" option on each card (small button or context menu) that moves the opportunity back to its last active stage and clears `closedStatus`
+
+### Persistence
+Remember collapsed/expanded state per user session. Collapsed by default on first load.
+
+---
+
+## Change 4: API Routes
+
+Add or update the following:
+
+- `PATCH /api/opportunities/:id/won` — sets closedStatus to WON, closedAt to now
+- `PATCH /api/opportunities/:id/lost` — sets closedStatus to LOST, lostReason (required), lostNote (optional), closedAt to now
+- `PATCH /api/opportunities/:id/reopen` — clears closedStatus, lostReason, lostNote, closedAt
+- `GET /api/pipeline` — update to return active opportunities separately from closed ones, or add a `includeClosd` param
+
+---
+
+## Delivery Checklist
+- [ ] Opportunity model updated with closedStatus, lostReason, lostNote, closedAt fields
+- [ ] Migration runs successfully
+- [ ] Won and Lost buttons appear at bottom of stage dropdown, separated by divider
+- [ ] Won confirmation dialog works correctly
+- [ ] Lost modal appears, reason dropdown is required, cannot submit without selection
+- [ ] Lost modal notes field is optional
+- [ ] Marking Won removes opportunity from active pipeline, moves to Won column
+- [ ] Marking Lost removes opportunity from active pipeline, moves to Lost column
+- [ ] Won and Lost columns appear at far right of pipeline board
+- [ ] Both columns collapsed by default
+- [ ] Collapsed state shows slim pill, muted color, label, count badge, expand chevron
+- [ ] Expanded state shows full column with cards and correct color treatment
+- [ ] Cards in closed columns are not draggable
+- [ ] Reopen option on closed cards works correctly and clears closed status
+- [ ] Collapsed/expanded state persists per session
+- [ ] No TypeScript errors, no console errors
+- [ ] Active pipeline functionality completely unaffected
+
+## END OF PROMPT

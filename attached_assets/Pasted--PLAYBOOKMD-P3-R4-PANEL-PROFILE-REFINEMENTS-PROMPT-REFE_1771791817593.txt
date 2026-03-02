@@ -1,0 +1,231 @@
+# PLAYBOOKMD — P3-R4: PANEL + PROFILE REFINEMENTS
+
+## PROMPT REFERENCE
+Code: P3-R4 | Phase 3, Revision 4
+Targeted refinements only. Do not rebuild what is already working.
+
+---
+
+## CRITICAL INSTRUCTIONS
+
+Read the entire prompt before writing any code. These are targeted fixes to specific issues. Do not change anything not listed here. Run on MEDIUM AUTONOMY.
+
+---
+
+## FIX 1: QUICK ACTIONS — COMPACT ICON ROW
+
+Current state: 2×2 grid of large buttons taking up excessive vertical space
+Required state: single compact horizontal row of icon buttons
+
+Replace the 2×2 grid with a single row of 4 icon buttons:
+
+```
+[💬]  [✉]  [📅]  [📞]
+Text  Email  Book  Log Call
+```
+
+Each button:
+- Size: 40px × 48px
+- Icon: 18px, centered
+- Label: 10px, centered below icon, `--text-muted`
+- Border: `1px solid var(--border-default)`
+- Border-radius: 8px
+- Background: white
+- Hover: `rgba(16,185,129,0.06)` background, `#10B981` border, icon turns emerald
+- Gap between buttons: 8px
+- Row is full width of panel content area, buttons flex equally
+
+Icons:
+- Text: `MessageSquare`
+- Email: `Mail`
+- Book: `CalendarPlus`
+- Log Call: `Phone`
+
+Log Call behavior unchanged — clicking still expands the inline form below the row.
+Text, Email, Book: placeholder toasts unchanged.
+
+---
+
+## FIX 2: RENAME "QUOTES" TAB TO "FINANCES"
+
+In the opportunity panel tab bar, rename the "Quotes" tab to "Finances".
+Update the tab icon if one exists — use `DollarSign` or `Landmark` from lucide.
+
+The content of the tab is rebuilt in Fix 3 below.
+
+---
+
+## FIX 3: FINANCES TAB — REBUILD CONTENT
+
+Current state: quote card showing amount + date + "$0 of $X paid" — clunky, no visual hierarchy, quote/invoice conflation
+
+Required state: three clearly separated sections showing the full financial picture for this opportunity.
+
+### Section 1: QUOTES
+
+Label: "QUOTES" — 10px uppercase weight 600 `--text-muted`, margin-bottom 8px
+
+Each quote is a card:
+- Border-radius: 8px
+- Border: `1px solid var(--border-default)`
+- Left border: 3px solid — amber `#F59E0B` PENDING, emerald `#10B981` ACCEPTED, red `#EF4444` EXPIRED, gray DRAFT
+- Padding: 14px
+- Procedure name: 13px weight 600
+- Amount: Geist Mono 20px weight 800 `--text-primary` — hero number
+- Status pill: right-aligned top row
+- Date: 11px Geist Mono `--text-muted` "Created Feb 22"
+- If ACCEPTED: show "→ Converted to Invoice #INV-005" in emerald 12px — this links the quote to its invoice visually
+
+If no quotes: "No quotes yet" `--text-muted` + "+ Create Quote" outlined button (placeholder toast)
+
+---
+
+### Section 2: INVOICES
+
+Label: "INVOICES" — 10px uppercase weight 600 `--text-muted`, margin-top 20px, margin-bottom 8px
+
+Each invoice is a card:
+- Same card styling as quotes
+- Left border: emerald if PAID, amber if PARTIAL/PENDING, red if OVERDUE
+- Invoice number: 11px Geist Mono `--text-muted` top of card
+- Description/procedure: 13px weight 600
+- Payment breakdown — this is the critical display, show ALL THREE numbers explicitly:
+
+```
+TOTAL          PAID           REMAINING
+$8,000         $5,000         $3,000
+```
+
+Three labeled columns, each:
+- Label: 9px uppercase `--text-muted`
+- Value: Geist Mono 15px weight 700
+- TOTAL: `--text-primary`
+- PAID: emerald `#10B981`
+- REMAINING: red `#EF4444` if > 0, emerald if 0 (fully paid)
+
+Status badge: "PAID IN FULL" emerald / "PARTIAL" amber / "PENDING" gray / "OVERDUE" red
+
+Due date if exists: 11px Geist Mono `--text-muted` "Due Mar 15"
+
+If REMAINING is 0: show "✓ Paid in Full" in emerald instead of remaining column
+
+Quote association: "From Quote #Q-2024-0847 →" in 11px `--text-muted` — links invoice back to its source quote
+
+"Record Payment →" link bottom right (placeholder toast)
+
+If no invoices: "No invoices yet" `--text-muted`
+
+---
+
+### Section 3: PAYMENT HISTORY
+
+Label: "PAYMENT HISTORY" — 10px uppercase weight 600 `--text-muted`, margin-top 20px, margin-bottom 8px
+
+List of individual payment records — each row:
+- Date: Geist Mono 12px `--text-muted`
+- Description: "Deposit" / "Balance Payment" / "Consultation Fee" / etc.
+- Amount: Geist Mono 13px weight 600 emerald
+- Method: 11px `--text-muted` "Visa ···4242" or "Cash" or "CareCredit"
+
+If no payment records: "No payments recorded" `--text-muted`
+
+Note: Payment records may not exist in the DB yet. If no Payment model exists, show the section with empty state — do not crash. Add a stub Payment model if needed:
+```prisma
+model Payment {
+  id            String   @id @default(cuid())
+  practiceId    String
+  patientId     String
+  invoiceId     String?
+  opportunityId String?
+  amount        Float
+  method        String?
+  description   String?
+  paidAt        DateTime @default(now())
+  createdAt     DateTime @default(now())
+  practice      Practice @relation(fields: [practiceId], references: [id])
+  patient       Patient  @relation(fields: [patientId], references: [id])
+}
+```
+Seed 1-2 payment records per patient. Run migration.
+
+---
+
+## FIX 4: QUOTE → INVOICE ASSOCIATION IN PATIENT PROFILE FINANCIAL TAB
+
+On the full patient profile Financial tab, make the quote → invoice relationship explicit.
+
+In the Quotes table:
+- Add a column "Invoice" — shows Invoice # if quote was converted, "—" if not
+- ACCEPTED quotes with linked invoice: show "INV-005 →" as a link (placeholder for now)
+
+In the Invoices table:
+- Add a column "Source Quote" — shows Quote # that generated this invoice
+- "Q-2024-0847 →" as reference
+
+This makes the lifecycle visible: Quote created → Quote accepted → Invoice generated → Invoice paid.
+
+Also update the Financial tab KPI strip to add a 5th metric or replace Credits with:
+- **Total Collected** (sum of all Payment records for this patient)
+
+---
+
+## FIX 5: TIMELINE — REMOVE CLICK AFFORDANCE FROM NON-INTERACTIVE ITEMS
+
+Current state: timeline entries may show pointer cursor or hover states implying they're clickable, but clicking does nothing
+
+Required state: timeline entries are informational only for now. No false affordance.
+
+- Remove `cursor: pointer` from timeline entry cards
+- Remove any `onClick` handlers that don't navigate anywhere
+- Hover state: very subtle background tint `rgba(0,0,0,0.02)` — just enough to acknowledge hover without implying action
+- Do NOT add click navigation to quotes or invoices in the timeline yet — those modules aren't built
+
+Exception: appointment entries CAN show a hover state since clicking them will eventually navigate to appointment detail. Add `cursor: pointer` and a hover tint to appointment entries only, but clicking shows a toast "Appointment detail view coming soon."
+
+---
+
+## FIX 6: FINANCES TAB ON PATIENT PROFILE — RENAME + BALANCE DISPLAY
+
+Same rename: "Financial" tab → "Finances" on the patient profile page.
+
+In the invoices table on the patient profile, replace the single "Paid" column with three columns:
+- Total | Paid | Remaining
+- Same three-column treatment as the panel (Fix 3 above)
+- Remaining shown in red if > 0
+
+---
+
+## WHAT NOT TO TOUCH
+
+- Pipeline board
+- Dashboard
+- Appointments tab in panel (working correctly)
+- Forms tab in panel (working correctly, seed data confirmed present)
+- Activity tab in panel
+- Patient list page
+- Patient profile timeline, sidebar, or other tabs
+- Clerk auth
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Quick Actions is a single compact horizontal row, 4 buttons, 40×48px each
+- [ ] Log Call still expands inline form below the row
+- [ ] Panel tab renamed from "Quotes" to "Finances"
+- [ ] Finances tab: Quotes section with visual cards and colored left borders
+- [ ] Finances tab: quote amount as large Geist Mono hero number
+- [ ] Finances tab: ACCEPTED quote shows "→ Converted to Invoice #X" link
+- [ ] Finances tab: Invoices section with TOTAL / PAID / REMAINING three-column display
+- [ ] Finances tab: REMAINING shown in red if > 0, emerald if 0
+- [ ] Finances tab: invoice shows "From Quote #X →" back-reference
+- [ ] Finances tab: Payment History section (empty state if no records)
+- [ ] Payment model created and migrated if not exists
+- [ ] Patient profile Financial → Finances rename
+- [ ] Patient profile invoices table shows Total / Paid / Remaining columns
+- [ ] Quote table shows linked Invoice # column
+- [ ] Invoice table shows source Quote # column
+- [ ] Timeline entries have no false click affordance
+- [ ] Appointment entries in timeline have pointer cursor + "coming soon" toast
+- [ ] No TypeScript errors
+- [ ] No console errors

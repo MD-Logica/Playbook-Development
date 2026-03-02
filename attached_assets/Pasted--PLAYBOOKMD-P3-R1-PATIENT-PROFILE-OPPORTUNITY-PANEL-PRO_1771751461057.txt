@@ -1,0 +1,444 @@
+# PLAYBOOKMD — P3-R1: PATIENT PROFILE + OPPORTUNITY PANEL
+
+## PROMPT REFERENCE
+Code: P3-R1 | Phase 3, Revision 1
+Previous phases: P1 (foundation + shell), P2 (pipeline kanban)
+
+---
+
+## OVERVIEW
+
+Phase 3 builds two interconnected things:
+1. **Opportunity Detail Panel** — a slide-out panel that opens when clicking a pipeline card. Lightweight, focused, action-oriented.
+2. **Patient Profile Page** — a full-page deep dive into a patient's complete history. Accessed from the panel or from the Patients list.
+
+Do NOT build these as separate unrelated screens. They are two levels of the same information hierarchy: Panel (quick context + actions) → Full Profile (complete record).
+
+Run on HIGH AUTONOMY. Follow established design system throughout. Make bold visual choices on data presentation — especially quotes/invoices. Avoid generic table layouts where something more visual would serve better.
+
+---
+
+## PART 1: OPPORTUNITY PANEL (SLIDE-OUT)
+
+### Trigger
+Clicking any pipeline card opens this panel. The pipeline board remains visible and interactive behind the panel.
+
+### Panel Behavior
+- Slides in from the right edge of the viewport
+- Width: 400px on desktop, full width on mobile
+- Does not cover the entire board — board remains partially visible to the left
+- Clicking a different pipeline card while panel is open: panel stays open, content swaps with new opportunity data (no close/reopen animation)
+- Close: X button top right, or press Escape
+- Background: white
+- Left border: `3px solid [stage accent color]` — visual connection to the column this card came from
+- Box shadow: `0 0 40px rgba(0,0,0,0.15)` — lifts panel above board
+- Z-index: 50
+
+### Panel Header
+
+**Patient name:** 18px, weight 700, `--text-primary`
+
+**Tag pills** (immediately below name, in a flex-wrap row):
+Tags are stored as free-text strings on the patient record. Render each as a small pill.
+Special rendering for known tag values:
+- "VIP" → emerald background `#D1FAE5`, dark emerald text `#065F46`, crown emoji prefix 👑
+- "Discharged" → red background `#FEE2E2`, dark red text `#991B1B`, ⛔ emoji prefix — make this visually prominent, it's a warning
+- Any other tag → gray `var(--bg-tertiary)` background, `--text-secondary` text
+
+Tags are editable: clicking "+ Add Tag" opens a small inline input to type a new tag, press Enter to add. Clicking an existing tag shows an X to remove it. Store tags as a string array on the Patient model — add `tags String[] @default([])` to Patient model if not present, run migration.
+
+**Two-column assignment row** (below tags):
+```
+👤 Coordinator: Jessica M.        🩺 Provider: Dr. Martinez
+```
+- Label: 10px uppercase `--text-muted`
+- Value: 13px weight 600 `--text-primary`
+- Both are dropdown-editable inline — clicking the value opens a select of practice users (coordinator) or providers (provider)
+- Coordinator = who sold it (sales performance tracking)
+- Provider = who performs the procedure — could be surgeon, nurse, esthetician, dermatologist — do not assume doctor
+
+**Opportunity details row:**
+- Procedure: 14px, weight 600
+- Stage badge: small pill with stage accent color
+- Estimated value: Geist Mono, 14px, weight 700, emerald
+- Lead source: 12px, `--text-muted`, italic
+
+---
+
+### Appointment Storyline
+
+Section label: "APPOINTMENTS"
+
+Compact chronological list of all appointments linked to this opportunity (past and future).
+
+**Past appointments** (before today):
+- Grayed out: `--text-muted` for all text
+- Status badge (small, right-aligned):
+  - Completed: emerald dot + "Done"
+  - No Show: red dot + "No Show"
+  - Cancelled: gray dot + "Cancelled"
+- Date in Geist Mono
+
+**Future appointments** (today or later):
+- Full color, not grayed
+- Date in Geist Mono, emerald if within 7 days
+- Status badge: "Confirmed" (emerald) or "Unconfirmed" (amber)
+
+**Visual design:** Keep this compact. Each appointment is a single line — date + type + provider + status badge. If more than 3 appointments, show first 2 and "View all X" link.
+
+**"Book Appointment" button:** Always visible below the list, even if upcoming appointments exist.
+- Emerald outlined button, `CalendarPlus` icon + "Book Appointment"
+- On click: placeholder toast "Appointment booking coming in Phase 4 — patient and opportunity will be pre-linked"
+- When real booking is built, it must auto-set `opportunityId` on the created appointment
+
+---
+
+### Quotes & Invoices
+
+Section label: "QUOTES & FINANCIALS"
+
+**Visual approach — bold, not a table.**
+
+Each quote is a card. Multiple quotes stack vertically.
+
+**Quote card:**
+- Thin left border: amber for PENDING, emerald for ACCEPTED, red for EXPIRED, gray for DRAFT
+- Procedure name: 13px weight 600
+- Amount: Geist Mono, 16px, weight 700 — hero number
+- Status pill: top right
+- Date sent + expiry: 11px Geist Mono `--text-muted`
+- If ACCEPTED: show "Converted to Invoice →" link
+
+**Invoice progress** (when quote converted):
+```
+Invoice #INV-4521
+[████████░░░░░░░░░░░░] $1,000 of $2,000 paid
+```
+- Progress bar: emerald fill, `var(--bg-tertiary)` track, 6px height, rounded
+- "$X of $Y paid" in Geist Mono, 12px
+- "Record Payment" link right-aligned (placeholder)
+- If fully paid: 100% emerald bar, "Paid in Full ✓" in emerald
+
+If no quotes: "No quotes yet" + "+ Create Quote" placeholder button.
+
+---
+
+### Forms Status
+
+Section label: "FORMS"
+
+Show 2-3 key forms per opportunity. Seed with: Intake Form, Surgical Consent (if applicable), Financial Agreement.
+
+Each form as a single compact row:
+```
+[icon] Intake Form           ● Not Sent    [Send]
+[icon] Surgical Consent      ● Sent        [Remind]
+[icon] Financial Agreement   ✓ Completed   [View]
+```
+
+**Status:**
+- Not Sent: gray dot, gray text, "Send" action button (placeholder)
+- Sent: amber dot, amber text, "Remind" action button (placeholder)
+- Completed: emerald checkmark, emerald text, "View" action button (placeholder)
+
+Store on `OpportunityForm` model:
+```prisma
+model OpportunityForm {
+  id            String    @id @default(cuid())
+  opportunityId String
+  formName      String
+  status        String    @default("NOT_SENT") // NOT_SENT | SENT | COMPLETED
+  sentAt        DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+}
+```
+Run migration. Seed varied statuses across opportunities.
+
+---
+
+### Quick Actions
+
+Section label: "QUICK ACTIONS"
+
+Four buttons in a 2x2 grid — icon on top, label below, equal size, rounded rectangle, outlined:
+
+**Draft Text** — `MessageSquare` icon → placeholder toast
+
+**Draft Email** — `Mail` icon → placeholder toast
+
+**Book Appointment** — `CalendarPlus` icon → placeholder toast (same as above)
+
+**Log Call** — `Phone` icon → THIS ONE IS FUNCTIONAL:
+
+Opens an inline form within the panel:
+```
+Log Phone Call
+──────────────────────────────
+Outcome:  ○ Answered  ○ No Answer
+Reason:   [select: Follow-up / Appointment Confirmation / 
+           Quote Follow-up / General Inquiry / Other]
+Note:     [textarea, 2 rows, "What was discussed?"]
+
+[Cancel]                    [Log Call]
+```
+
+On submit:
+- Creates Activity: `{ type: "CALL_LOG", outcome, reason, content: note, opportunityId, patientId, practiceId }`
+- Shows success toast "Call logged"
+- Will appear in patient timeline on full profile
+
+Button hover: emerald tint background.
+
+---
+
+### Panel Footer
+
+Sticky to bottom of panel, always visible:
+```
+→  View Full Patient Profile
+```
+- 14px, weight 500, emerald
+- `ArrowRight` icon
+- Navigates to `/patients/[patientId]`
+- Border-top: `1px solid var(--border-default)`
+- Background: white, padding 16px 20px
+
+---
+
+## PART 2: PATIENT LIST PAGE (`/patients`)
+
+### Header
+- Title: "Patients" 24px weight 700
+- Subtitle: total count "156 patients" `--text-muted`
+- Search: "Search by name, phone, or email..." client-side filter
+- "+ New Patient" emerald filled button (placeholder toast)
+
+### Table
+Columns: Name | Phone | Email | Last Activity | Open Opportunities | Lifetime Value | Actions
+
+- Name: 24px initials avatar (emerald) + full name weight 600, links to `/patients/[id]`
+- Phone + Email: Geist Mono
+- Last Activity: relative time, Geist Mono, `--text-muted`
+- Open Opportunities: count badge, emerald if > 0
+- Lifetime Value: Geist Mono, emerald if > 0
+- Actions: "View Profile" outlined small button
+
+Pagination: 25 per page.
+
+API: `GET /api/patients?search=&page=&limit=25`
+Compute: opportunityCount, lifetimeRevenue (sum paid invoices or estimated values), lastActivityAt
+
+---
+
+## PART 3: PATIENT PROFILE PAGE (`/patients/[id]`)
+
+### Top Bar
+Breadcrumb: "Patients › Sarah Johnson" — "Patients" links to `/patients`
+
+### Layout
+Left sidebar: 260px fixed | Right content: fills remainder
+
+---
+
+### Left Sidebar
+
+**Avatar:** 52px circle, initials, emerald bg, white text
+**Name:** 20px weight 700
+**Patient ID:** Geist Mono 12px `--text-muted`
+**Tags:** same pill rendering as panel
+**Quick actions:** Call | Text | Email — small outlined buttons (placeholder toasts)
+
+**CONTACT INFO:**
+Email, Phone, DOB + age, City/State — each with lucide icon
+
+**UPCOMING:**
+Next 2 appointments across all opportunities
+Date (Geist Mono, emerald if ≤ 7 days) + type + provider
+"+ Book Appointment" link (placeholder)
+
+**REVENUE:**
+- Lifetime Revenue: Geist Mono, weight 800, emerald — large, commanding
+- Open Quote Value: Geist Mono, amber
+- Procedure Count: "X Procedures"
+All real computed data.
+
+**OPEN OPPORTUNITIES:**
+All non-archived opportunities for this patient
+Each: procedure + stage pill + value (Geist Mono)
+Clicking one opens the opportunity panel (same slide-out component, reused)
+
+**REFERRALS:**
+Primary Source | Referred By | Has Referred (list of referred patients)
+
+---
+
+### Tab Navigation
+
+7 tabs: Timeline | Financial | Communications | Medical Records | Photos | Documents | Notes
+
+Active: `2px solid #10B981` bottom border, weight 600
+Inactive: `--text-muted`
+
+Tabs 3–7: clean placeholder empty states (intentional, not broken):
+- Relevant icon, tab name, "This section is coming soon", "In Development" emerald badge
+
+---
+
+### Timeline Tab
+
+Complete reverse-chronological history of this patient.
+
+**Filter pills above feed:**
+All Activity | Appointments | Quotes | Calls | Notes
+(All are functional client-side filters on the loaded data)
+
+**Entry types:**
+
+| Type | Dot | Icon | Source |
+|------|-----|------|--------|
+| Appointment | Blue `#3B82F6` | `Calendar` | Appointment table |
+| Quote | Amber `#F59E0B` | `FileText` | Quote table |
+| Call Log | Purple `#8B5CF6` | `Phone` | Activity CALL_LOG |
+| Stage Change | Gray | `ArrowRight` | Activity STAGE_CHANGE |
+| Note | Yellow `#EAB308` | `StickyNote` | Activity NOTE |
+| Payment | Emerald | `CreditCard` | Invoice records |
+
+**Entry card:** white, `1px solid var(--border-default)`, 8px radius, 14px 16px padding, subtle shadow. Left margin 32px for timeline line.
+
+**Timeline line:** 2px `var(--border-default)` vertical, 10px colored dot with 2px white border.
+
+**Date group headers:** sticky, "Today" / "Yesterday" / "October 28, 2024" — 11px uppercase `--text-muted`
+
+**Add Note:** "+ Add Note" emerald outlined button, top right
+- Inline form: textarea + "Team Only" toggle + "Save Note"
+- Creates Activity NOTE, animates into feed
+
+**Load more:** "Load older activity" at bottom, 20 per page
+
+---
+
+### Financial Tab
+
+**KPI strip — 4 cards:**
+Total Revenue (emerald) | Open Balance (red if > 0) | Credits Available (amber) | Open Quotes (amber)
+
+**Quotes table:**
+Quote # | Procedure | Date | Amount | Valid Until | Status | Actions
+Status pills: PENDING amber | ACCEPTED emerald | EXPIRED red | DRAFT gray
+
+**Invoices table:**
+Invoice # | Description | Date | Amount | Paid | Status | Actions
+PAID emerald | PENDING amber | OVERDUE red
+
+If Invoice model doesn't exist, create and migrate:
+```prisma
+model Invoice {
+  id            String    @id @default(cuid())
+  practiceId    String
+  patientId     String
+  opportunityId String?
+  invoiceNumber String
+  description   String
+  amount        Float
+  amountPaid    Float     @default(0)
+  status        String    @default("PENDING")
+  dueDate       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  practice      Practice  @relation(fields: [practiceId], references: [id])
+  patient       Patient   @relation(fields: [patientId], references: [id])
+}
+```
+Seed 2–3 invoices per patient with varied statuses and partial amounts.
+
+**Account Summary footer:**
+Total Paid | Outstanding | Credits | Next Payment Due — Geist Mono
+
+---
+
+## API ROUTES
+
+`GET /api/patients` — paginated list with computed fields
+`GET /api/patients/[id]` — full patient with sidebar data
+`GET /api/patients/[id]/timeline?type=&page=&limit=20` — merged sorted feed
+`POST /api/patients/[id]/notes` — creates Activity NOTE
+`GET /api/patients/[id]/financial` — quotes, invoices, totals
+`GET /api/opportunities/[id]/panel` — opportunity with patient, appointments, quotes, invoices, forms
+`POST /api/activities` — creates any activity record
+`PATCH /api/patients/[id]/tags` — updates tags string array
+
+---
+
+## NAVIGATION WIRING
+
+- Pipeline card click → opportunity panel (slide-out, no page navigation)
+- Panel footer → `/patients/[id]`
+- Sidebar "Patients" nav item → `/patients`
+- Patient list row → `/patients/[id]`
+- Left sidebar opportunity item → opportunity panel (reuse same component)
+- Ensure "Patients" is active and linked in sidebar navigation
+
+---
+
+## ANIMATIONS
+
+- Panel slide-in: `translateX(100%)` → `translateX(0)`, 250ms ease-out
+- Panel content swap: fade out 100ms, new content fade in 150ms — no close/reopen
+- Timeline entries: stagger 40ms apart, first 6 only, rest instant
+- Tab switch: 120ms fade out, 150ms fade in
+- Log call form: slides down 200ms within panel
+
+---
+
+## WHAT NOT TO TOUCH
+
+- Pipeline board components and Phase 2 API routes
+- Dashboard
+- Clerk auth and practice resolver patterns
+
+---
+
+## DELIVERY CHECKLIST
+
+**Opportunity Panel:**
+- [ ] Slides in from right, 400px, board visible behind
+- [ ] Left border matches stage accent color
+- [ ] Content swaps without close/reopen when clicking different card
+- [ ] Patient name + tag pills (VIP/Discharged special rendering)
+- [ ] Tag add/remove works, persists to database
+- [ ] Coordinator + Provider — labeled distinctly, both inline-editable
+- [ ] Procedure + stage badge + value + lead source
+- [ ] Appointment storyline: past grayed, future highlighted, Book button always visible
+- [ ] Quotes as visual cards with colored left border, not a table
+- [ ] Invoice progress bar with emerald fill
+- [ ] Forms: 3 states (Not Sent / Sent / Completed) with action buttons
+- [ ] Quick actions 2x2 grid: Text/Email/Book (toasts) + Log Call (functional)
+- [ ] Log Call form: outcome, reason, note, creates Activity record
+- [ ] "View Full Patient Profile" sticky footer
+
+**Patient List:**
+- [ ] `/patients` renders with table
+- [ ] Search filters client-side
+- [ ] Computed opportunity count and lifetime value
+- [ ] Links to profile
+
+**Patient Profile:**
+- [ ] `/patients/[id]` renders
+- [ ] Left sidebar all sections populated with real data
+- [ ] 7 tabs: Timeline + Financial fully built, others clean placeholders
+- [ ] Timeline: all 6 entry types from real data
+- [ ] Filter pills work client-side
+- [ ] Add Note works, appears in feed
+- [ ] Financial: KPI strip, quotes table, invoices table
+- [ ] Opportunity panel opens from left sidebar opportunity list
+
+**Schema / Data:**
+- [ ] Patient.tags String[] added and migrated
+- [ ] OpportunityForm model created and migrated
+- [ ] Invoice model created and migrated if needed
+- [ ] Activity model supports CALL_LOG type
+- [ ] Seed data covers invoices and opportunity forms with varied statuses
+- [ ] No TypeScript errors
+- [ ] No console errors

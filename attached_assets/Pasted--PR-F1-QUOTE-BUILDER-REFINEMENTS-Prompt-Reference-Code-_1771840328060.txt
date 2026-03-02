@@ -1,0 +1,217 @@
+# PR-F1 — QUOTE BUILDER REFINEMENTS
+
+## Prompt Reference
+Code: PR-F1 | Revision prompt — quote builder UX fixes, patient-first search flow, expiration presets, editorial PDF design, coordinator contact pill
+Run on MEDIUM AUTONOMY — touches quote builder UI, + New dropdown, and PDF generation.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-F3 being already implemented. This is a targeted revision — do not rewrite or restructure anything working correctly. Only fix what is listed here.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- This is a refinement prompt — surgical changes only.
+- When complete: verify quote number displays correctly, patient-first search works, notes are at the bottom, expiration presets work, PDF downloads with correct design, coordinator pill appears at bottom of PDF. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Fix 1: Quote Number — Display in Header
+
+The auto-generated quote number (format: Q-YYYY-####) is not displaying in the quote builder. It must appear prominently in the quote header area, near the "Quote Builder" heading and DRAFT status badge. Style it as a subtle but clear identifier — e.g., "#Q-2026-0001" in a muted but readable style next to the status badge.
+
+---
+
+## Fix 2: Remove Quote Title Field
+
+Remove the "Quote Title (optional)" field entirely from the quote builder form. It is unnecessary — the quote is already identified by its number and linked patient/deal.
+
+---
+
+## Fix 3: Patient-First Search Flow
+
+### Current behavior (broken)
+The form has a "Search deals..." input which is the wrong starting point.
+
+### New behavior
+Replace the Deal + Patient fields with:
+
+**Step 1 — Patient search:**
+- A single search input labeled "Patient" with placeholder "Search patients..."
+- Searches by patient name, phone, or email
+- Returns a dropdown list of matching patients with name and a subtle secondary detail (email or phone)
+- Selecting a patient locks the patient field (shows their name, read-only)
+
+**Step 2 — Deal selection:**
+- Once a patient is selected, a "Deal" dropdown appears below
+- Populated with that patient's open deals (non-closed)
+- Each option shows deal title + current stage
+- If the patient has only one open deal, auto-select it
+- If no open deals exist, show: "No open deals — create a deal first" with a link to add one
+- Selecting a deal locks the deal field (read-only)
+
+When the quote builder is opened from within a deal's Finances tab, both patient and deal are pre-filled and locked — no search needed.
+
+---
+
+## Fix 4: Move Notes Fields to Bottom
+
+Move both "Internal Notes (hidden from patient)" and "Patient Notes (shown on quote)" sections to the bottom of the quote builder form, below the line items section and totals. They should be the last thing on the page before the save/action buttons.
+
+---
+
+## Fix 5: + New Dropdown Refinement
+
+### Bug fix
+"New Deal" currently navigates to the pipeline view instead of opening the Add Deal form. Fix this — clicking "New Deal" must open the Add Deal modal/form directly, same as clicking "+ Add Deal" from the pipeline board.
+
+### Visual refinement
+Polish the + New dropdown menu:
+- Slightly wider with more breathing room
+- Each option has a small icon to the left (e.g., handshake or tag icon for New Deal, document icon for New Quote, invoice icon for New Invoice, calendar icon for Book Appointment)
+- Coming Soon items (New Invoice, Book Appointment) are visually muted with a subtle "Soon" badge and are not clickable
+- Clean divider or grouping if needed
+- Smooth open/close animation
+
+---
+
+## Fix 6: Expiration Date Presets
+
+Replace the bare date picker with a smarter expiration date selector:
+
+**Quick select buttons** displayed as a segmented control or pill group:
+- **30 days**
+- **60 days**
+- **90 days**
+- **Custom**
+
+Clicking 30/60/90 automatically sets the expiration date to today + that number of days and displays the resulting date below the buttons (e.g., "Expires on April 24, 2026").
+
+Clicking "Custom" reveals the date picker for manual selection.
+
+Default to 30 days pre-selected when creating a new quote.
+
+---
+
+## Fix 7: Practice Branding Setup
+
+Before the PDF can use practice branding, the Practice Settings page needs to store:
+- **Practice Logo** — image upload
+- **Primary Color** — color picker (hex input)
+- **Secondary Accent Color** — color picker (hex input)
+
+Add these fields to the existing Practice settings page (already in Settings sidebar). If the Practice settings page doesn't exist yet, create a minimal one with just these fields plus practice name. These values are pulled by the PDF generator.
+
+---
+
+## Fix 8: Editorial PDF Design
+
+### Design Direction
+The patient-facing PDF should feel premium and editorial — think high-end medical publication or luxury brand proposal. Clean, generous white space, sophisticated typography, restrained use of color. Nothing that looks like generic software output.
+
+### Typography
+- **Headers** (practice name, section headings): Playfair Display or Cormorant Garamond (serif) — elegant, editorial weight
+- **Body text** (line items, descriptions, contact info): Inter or DM Sans (sans-serif) — clean, highly legible
+- Use font weight variation (light, regular, semibold) to create hierarchy without relying on color
+- Load fonts via Google Fonts in the PDF generator
+
+### Layout & Spacing
+- Generous margins (at least 48px on all sides)
+- Clear section separation with thin rules or white space — not heavy borders or boxes
+- Line items table: minimal grid, light dividers between rows only (no heavy table borders)
+- Right-aligned totals section with clear visual separation from line items
+
+### Color Usage
+- Neutral base: white background, near-black text (#1a1a1a or similar)
+- Practice primary color used sparingly: quote number, section accent lines, deposit amount highlight, coordinator pill border
+- Practice secondary color used even more sparingly: small accents only
+- If no practice colors are configured, fall back to a sophisticated dark green (#1a3a2a) as default
+
+### PDF Structure (top to bottom)
+
+**Header section:**
+- Practice logo (left-aligned, max height ~60px)
+- Practice name in serif, large
+- Right side: "Quote" label in large serif, Quote number below it in smaller sans-serif, muted
+- Thin full-width rule below header
+
+**Patient & Quote Info:**
+- Two-column row: left = patient name + contact info | right = date issued, expiration date, coordinator name
+- Subtle section, not visually heavy
+
+**Line Items:**
+- Section heading "Services" in serif
+- Clean table: Item | Description | Qty | Price | Total
+- Light row dividers only
+- Bundle components hidden unless toggle is on
+- Per-line-item discounts shown as a subtle line below the item in muted text
+- Provider attribution NOT shown (internal only)
+
+**Totals:**
+- Right-aligned, clean
+- Subtotal, discount (if any), tax, bold Total
+- Thin rule above Total line
+
+**Deposit Section:**
+- Slightly set apart visually
+- Label: "DEPOSIT TO SECURE YOUR DATE" in small caps or light weight caps
+- Deposit amount in large, prominent type using practice primary color
+- Percentage context below: "(20% of total)"
+
+**Financing Section:**
+- Subtle section: "Financing options available"
+- Text mentions: CareCredit • Cherry • PatientFi
+- Small, tasteful — not a banner
+
+**Patient Notes:**
+- If patient notes exist, shown in a lightly styled box or indented section
+- Labeled "Notes"
+
+**Coordinator Contact Pill:**
+- At the very bottom of the page
+- Pill-shaped container (rounded rectangle, subtle border in practice primary color or light gray)
+- Contents: coordinator name (semibold) | email | phone
+- Small and compact — like a digital business card
+- Centered or left-aligned
+
+**Footer:**
+- Practice address/contact info in very small text
+- "This quote is valid until [expiration date]"
+
+### PDF Generation
+Use a library like `@react-pdf/renderer` or `puppeteer` to generate the PDF server-side. Ensure fonts load correctly in the PDF context. PDF should be downloadable from a "Download PDF" button in the quote builder header actions area.
+
+---
+
+## Delivery Checklist
+- [ ] Quote number displays in quote builder header
+- [ ] Quote Title field removed
+- [ ] Patient search input works and returns correct results
+- [ ] Selecting patient populates deal dropdown with their open deals
+- [ ] Deal dropdown auto-selects if only one open deal exists
+- [ ] No open deals state handled correctly
+- [ ] Opening quote from deal Finances tab pre-fills and locks patient and deal
+- [ ] Notes fields moved to bottom of form below line items and totals
+- [ ] New Deal from + New dropdown opens Add Deal form correctly
+- [ ] + New dropdown has icons, muted Coming Soon items, visual polish
+- [ ] Expiration date shows 30/60/90/Custom segmented control
+- [ ] 30/60/90 presets correctly calculate and display resulting date
+- [ ] Custom option reveals date picker
+- [ ] Default is 30 days pre-selected
+- [ ] Practice settings page has logo upload, primary color, secondary color fields
+- [ ] PDF downloads from quote builder header
+- [ ] PDF uses Playfair Display or Cormorant for headers
+- [ ] PDF uses Inter or DM Sans for body
+- [ ] PDF uses practice logo and colors (falls back to defaults if not set)
+- [ ] PDF layout matches editorial spec — generous margins, clean typography
+- [ ] Bundle components hidden on PDF by default
+- [ ] Provider attribution not shown on PDF
+- [ ] Deposit section prominent on PDF
+- [ ] Coordinator contact pill appears at bottom of PDF
+- [ ] Quote expiration date shown in PDF footer
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

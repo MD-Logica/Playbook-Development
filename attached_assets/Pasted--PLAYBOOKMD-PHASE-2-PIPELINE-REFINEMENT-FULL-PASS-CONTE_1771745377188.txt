@@ -1,0 +1,266 @@
+# PLAYBOOKMD — PHASE 2 PIPELINE REFINEMENT (FULL PASS)
+
+## CONTEXT
+
+The pipeline board structure and data are working correctly. This is a comprehensive visual refinement pass covering six areas: board color depth, typography system, card cleanup, filter panel, header layout, and spacing. Do not change any API routes, drag-and-drop logic, data fetching, or schema.
+
+Run on HIGH AUTONOMY within these areas. Make creative decisions that serve the goal: a pipeline board that feels premium, intentional, and nothing like a generic AI-generated template.
+
+---
+
+## FIX 1: BOARD BACKGROUND AND DEPTH SYSTEM
+
+The current board is flat white on white on white. Introduce three distinct depth layers so the eye can immediately distinguish board surface from column container from card.
+
+### Update `globals.css` color tokens:
+
+```css
+/* Board-specific surfaces */
+--board-bg: #ECEEF2;           /* Cool blue-gray — the kanban board background */
+--column-bg: #F4F5F7;          /* Slightly lighter — column lane background */
+--card-bg: #FFFFFF;             /* Pure white — cards sit on top */
+--column-header-bg: #FFFFFF;   /* White — column headers pop from lane */
+```
+
+### Apply:
+- Board container background: `var(--board-bg)` — `#ECEEF2`
+- Column lane (the droppable area where cards sit): `var(--column-bg)` — `#F4F5F7`
+- Column header: `var(--column-header-bg)` — white, with bottom border `1px solid var(--border-default)`
+- Cards: `var(--card-bg)` — white, with `box-shadow: 0 1px 3px rgba(0,0,0,0.08)`
+- Column footer ("+ Add card"): same as column lane background, `var(--column-bg)`
+
+### Content area above the board:
+The area containing the page title, pipeline switcher, value strip, and filter buttons should have background `var(--bg-primary)` — white — with a `1px solid var(--border-default)` bottom border separating it from the board below. Height: 52px. This creates a clear control bar vs board separation.
+
+This three-layer system (board bg → column bg → white card) is what Pipedrive, Linear, and Jira all use. It immediately communicates depth and hierarchy.
+
+---
+
+## FIX 2: TYPOGRAPHY SYSTEM — GEIST SANS + GEIST MONO
+
+Implement a deliberate two-typeface system across the pipeline board. Both fonts are already in Next.js via the Geist package.
+
+### Rule: Geist Mono for all data, Geist Sans for all names and labels
+
+**Use Geist Mono (`font-mono` class or `fontFamily: 'var(--font-geist-mono)'`) for:**
+- All currency values: "$15,000", "$450", "$0"
+- All date/time values: "Oct 15", "2d ago", "Tomorrow 2:00 PM"
+- All numeric counts: card counts in column headers, day counts in rotting badges
+- Pipeline value strip numbers: "$5,950", "8d avg", "100%"
+- Bottom action bar values: "4 calls due", "$0", "8 leads"
+
+**Use Geist Sans for everything else:**
+- Patient names
+- Procedure names
+- Stage names
+- Labels and captions
+- Navigation
+- Buttons
+
+### Weight system (Geist Sans):
+- 700: Patient names on cards, column stage names, page title
+- 600: Section headers, pipeline switcher label, button text
+- 500: Coordinator names, filter labels, metadata labels
+- 400: Body copy, descriptions, placeholder text
+
+### Weight system (Geist Mono):
+- 700: Dollar values, key metrics in value strip and bottom bar
+- 600: Dates, day counts
+- 500: Secondary numeric data
+
+This distinction — humanist sans for people/concepts, monospace for numbers/dates — makes data scannable and gives the UI a crafted, intentional character.
+
+---
+
+## FIX 3: CARD CLEANUP AND UNIFORM HEIGHT
+
+### Remove entirely from cards:
+- Lead source tag (GOOGLE_ADS, WEBSITE, WORD_OF_MOUTH, INSTAGRAM, etc.) — remove completely, no empty space
+
+### Fixed card height: 108px
+All cards must be exactly 108px tall. No exceptions.
+
+```css
+.pipeline-card {
+  height: 108px;
+  min-height: 108px;
+  max-height: 108px;
+  overflow: hidden;
+  position: relative; /* for rotting badge positioning */
+}
+```
+
+### Card content layout (top to bottom, space-between):
+**Top row:** Patient name (left, truncate) + Status badge (right)
+**Middle row:** Procedure name (left, truncate) + Dollar value in Geist Mono (right)
+**Bottom row:** Coordinator first name with user icon (left) + Last activity in Geist Mono (right)
+
+### Text truncation on all text nodes:
+```css
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+```
+
+### $0 and null values:
+Show "—" in Geist Mono instead of "$0" or blank
+
+### Card padding: 10px 12px
+
+### Card hover state:
+- `box-shadow: 0 4px 16px rgba(0,0,0,0.12)`
+- `transform: translateY(-1px)`
+- `border-color: var(--border-strong)`
+- Transition: 150ms ease
+
+### Rotting badge:
+- Size: 16px diameter
+- Font: 9px, weight 700 (Geist Mono), white
+- Position: `top: -5px`, `right: -5px`, absolute
+- Background: `#EF4444`
+- Border: `2px solid var(--column-bg)` — matches column background so it appears to sit on the column, not the card
+- Shows: "6d", "14d", "30d+" (cap at 30+)
+
+---
+
+## FIX 4: HEADER LAYOUT REDESIGN
+
+### Remove:
+- The standalone "Non-Surgical ▾" dropdown widget on the left — remove entirely
+- The mystery icon button to the left of Filter — remove entirely
+
+### Replace with:
+Make the pipeline name part of the page title in the top bar.
+
+In `TopBar.tsx` (or wherever the page title renders), when on the `/pipeline` route, render:
+```
+Non-Surgical Pipeline ▾
+```
+As a single clickable element. Clicking opens a dropdown to switch pipelines. This follows the same pattern as Linear's workspace switcher — the title IS the switcher.
+
+**Title styling:**
+- Font: Geist Sans, 18px, weight 700, `--text-primary`
+- The "▾" chevron: `ChevronDown` from lucide, 16px, `--text-muted`, 4px left margin
+- Hover: `--text-secondary`, cursor pointer
+- Dropdown: white card, 220px wide, shadow-md, 8px border-radius, appears below title
+
+**Pipeline value strip:**
+Move from below the title to the right side of the control bar, inline with the Filter and Sort buttons. Layout from left to right:
+```
+[Page Title as Pipeline Switcher]    [Value Strip]    [Filter ▾]  [Sort ▾]  [+ Add Lead]
+```
+
+Value strip styling:
+- Each metric: label 10px uppercase Geist Sans `--text-muted` + value 13px Geist Mono weight 700
+- Dividers: `1px solid var(--border-default)` vertical, 16px tall
+- Horizontal padding between metrics: 16px
+
+---
+
+## FIX 5: FILTER PANEL
+
+Replace the non-functional "Filter ▾" button with a working filter panel.
+
+### Filter button:
+- Shows current filter state: "Filter" when no filters active, "Filter (2)" when 2 filters applied
+- Active state: emerald background tint, emerald border, emerald text — visually indicates filters are on
+
+### Filter panel (opens on click):
+- Dropdown panel, white background, 320px wide, shadow-xl, 10px border-radius
+- Appears below the Filter button, right-aligned
+- Closes on outside click or Escape key
+
+### Panel structure:
+
+**Section 1: Quick Filters** (pill buttons, multi-selectable)
+Label: "QUICK FILTERS" — 10px uppercase, `--text-muted`
+Pills:
+- "My Leads" — filters to opportunities assigned to current Clerk user
+- "Rotting Only" — filters to opportunities where isRotting = true
+- "High Value" — filters to opportunities where estimatedValue > 5000
+- "Unassigned" — filters to opportunities with no assignedTo
+
+Active pill: emerald background, white text
+Inactive pill: `var(--bg-tertiary)` background, `--text-secondary`
+
+**Section 2: Custom Filters**
+Label: "CUSTOM FILTERS" — 10px uppercase, `--text-muted`
+
+Four filter rows, each with a label and input:
+
+1. **Created Date** — date range picker (two date inputs: From / To)
+2. **Last Activity** — select: "Any time" / "Today" / "Last 3 days" / "Last 7 days" / "Last 30 days" / "No activity"
+3. **Procedure** — multi-select dropdown populated from procedures in the practice
+4. **Assigned To** — multi-select dropdown populated from practice users
+
+**Footer:**
+- "Clear All" — ghost button left
+- "Apply Filters" — emerald filled button right
+- Shows count: "Showing 4 of 15 leads" when filters active
+
+### Filter logic (client-side for now):
+Apply filters to the already-loaded board data in memory. No new API calls needed — just filter the `stages[].opportunities` arrays before rendering. This keeps it fast and simple for the prototype.
+
+When filters are active:
+- Cards that don't match are hidden (not removed — keep column structure intact)
+- Column card count badge updates to show filtered count: "3 of 8"
+- Column value updates to show filtered total
+- A subtle "Filtered view" indicator appears in the control bar
+
+---
+
+## FIX 6: BOTTOM ACTION BAR TIGHTENING
+
+**Height:** 44px
+**Background:** white
+**Border-top:** `1px solid var(--border-default)`
+**Padding:** 0 28px
+
+Each metric:
+- Label: 10px, Geist Sans, uppercase, letter-spacing 0.06em, `--text-muted`
+- Value: 13px, Geist Mono, weight 700, appropriate color
+- Gap between label and value: 3px vertical
+- Metrics are vertically centered as a unit
+
+Dividers: `1px solid var(--border-default)`, height 20px, vertically centered in bar
+
+The four metrics stay the same: Today's Actions | Closing This Week | Stalled | AI Suggestions (grayed out)
+
+---
+
+## WHAT NOT TO CHANGE
+
+- Do not modify drag-and-drop logic or API routes
+- Do not change the column structure or stage data
+- Do not modify Pipeline Settings
+- Do not change the status badge types or colors on cards
+- Do not modify the sidebar or global navigation
+- Do not add new functionality beyond what is specified
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Board background is `#ECEEF2` — noticeably different from white
+- [ ] Column lane background is `#F4F5F7`
+- [ ] Cards are white with subtle shadow — three depth layers are visible
+- [ ] Control bar above board is white with bottom border — clear separation from board
+- [ ] Geist Mono applied to all currency, dates, numbers across the pipeline view
+- [ ] Geist Sans used for all names, labels, copy
+- [ ] All cards are exactly 108px — uniform height across all columns
+- [ ] Lead source tag removed from all cards
+- [ ] $0 shows as "—" in Geist Mono
+- [ ] Text truncation with ellipsis on all card text nodes
+- [ ] Rotting badges are 16px, flush to card corner, border matches column background
+- [ ] Pipeline name is the page title with clickable dropdown switcher
+- [ ] Mystery icon button removed
+- [ ] Standalone dropdown widget removed from board area
+- [ ] Value strip is in the control bar, right-aligned, with Geist Mono numbers
+- [ ] Filter button opens a panel with quick filters and custom filter rows
+- [ ] Quick filter pills work (client-side filtering)
+- [ ] Custom filters work (client-side)
+- [ ] "Clear All" resets all filters
+- [ ] Column counts update when filters are active
+- [ ] Bottom bar is 44px, compact, Geist Mono values
+- [ ] No TypeScript errors
+- [ ] No console errors

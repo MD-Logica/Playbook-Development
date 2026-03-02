@@ -1,0 +1,126 @@
+# PLAYBOOKMD — PHASE 2 PIPELINE REFINEMENT v4
+
+## CONTEXT
+
+The pipeline board is functionally solid. This pass has two goals: (1) specific targeted fixes that are non-negotiable, and (2) a bold creative direction on the overall visual personality of the board. You have creative latitude on the aesthetic — make strong choices that feel premium, modern, and distinctive. Do not play it safe. Do not produce generic SaaS output.
+
+The brand is emerald green (`#10B981` → `#064E3B`), dark sidebar (`#0A1628`), Geist Sans + Geist Mono typography. The product should feel like it was designed by people who think legacy medical software is a joke and built something genuinely better.
+
+---
+
+## NON-NEGOTIABLE FIXES (do these exactly as specified)
+
+### 1. REMOVE THE METRIC PILLS / VALUE STRIP ENTIRELY
+
+Delete the four metric pills (Total Value, Velocity, Win Rate, At Risk) from the control bar completely. Remove all associated components, API calls, and state.
+
+The control bar becomes:
+```
+[Non-Surgical Pipeline ▾]                    [Filter ▾]  [↑↓ Sort]  [+ Add Lead]
+```
+Left-aligned pipeline title. Right-aligned action buttons. Nothing in between. Use `justify-content: space-between`.
+
+The column headers already show per-stage card count and dollar value — that's enough at-a-glance data on the board itself.
+
+### 2. REMOVE STATUS BADGES FROM CARDS — REPLACE WITH APPOINTMENT CHIP
+
+**Remove entirely:**
+- All status badge pills from cards (Confirmed, Considering, New, Past Due, etc.)
+- These are inconsistent, ambiguous, and lack clear purpose
+
+**Replace with ONE of two possible indicators per card (mutually exclusive):**
+
+**Option A — Appointment Chip** (when the opportunity has a linked upcoming appointment):
+- Shows: `CalendarDays` icon (12px, emerald `#10B981`) + appointment date in Geist Mono
+- Date format: "Tomorrow" / "Today" / "Apr 20" / "In 3 days" — human-readable, context-aware
+- Style: NO pill border or background — just the icon and text inline, right-aligned in the top row
+- Color: emerald when appointment is upcoming, amber `#D97706` if appointment was in the past and not marked complete (implies "did they show?")
+- This replaces where the status badge was — top right of card
+
+**Option B — Rotting Indicator** (when no upcoming appointment AND opportunity is rotting):
+- Shows: "Xd overdue" text only, right-aligned, no icon
+- Color tiers:
+  - 1–6d: `#D97706` amber, weight 600, 12px Geist Mono
+  - 7–13d: `#DC2626` red, weight 600, 12px Geist Mono  
+  - 14d+: `#991B1B` dark red, weight 700, 12px Geist Mono
+- No pill, no border — just the text, right-aligned
+
+**When neither applies** (upcoming appointment exists OR not yet rotting):
+- Top right of card is empty — no badge, no placeholder
+
+This creates a card surface that only shows information when it's meaningful.
+
+### 3. ROTTING CARD BACKGROUND — KEEP BUT SOFTEN
+
+Rotting cards (7+ days) keep their subtle background treatment:
+- Background: `rgba(239, 68, 68, 0.03)` — barely perceptible red tint
+- Border: `1px solid rgba(239, 68, 68, 0.15)` — subtle red border
+- Do not make this more aggressive — it should be felt not seen
+
+---
+
+## CREATIVE DIRECTION (interpret freely, make bold choices)
+
+The board currently looks like competent generic SaaS. It needs personality. Here is the design direction and intent — execute it however you see fit as long as it serves these principles:
+
+### The Problem to Solve
+Every surface is the same flat white-gray. There is no focal point, no dominant visual element, no sense of depth beyond hairline borders. The brand color barely appears. Nothing tells your eye where to look.
+
+### Design Principles to Express
+- **Depth through surface variation** — not just borders, but actual tonal difference between layers
+- **Emerald as a character** — the brand color should appear meaningfully throughout the board, not just in the sidebar and one button
+- **Column identity** — each stage column should feel like it has a distinct personality/color identity, not just a left border accent
+- **Data density with breathing room** — information-dense but never claustrophobic
+- **Premium darkness** — consider whether certain elements (column headers? the board background? section labels?) could be darker/richer rather than defaulting to light gray
+
+### Specific Areas to Be Bold With
+
+**Column headers:**
+Current: white background, colored left border, uppercase label. Boring.
+Consider: giving each column header a tinted background based on its stage color. Or a darker header background (near-black like the sidebar) with white text and a colored accent. The columns should feel like distinct zones, not identical white boxes with different colored stripes.
+
+**Board background:**
+Current: `#ECEEF2` — better than white but still feels like a spreadsheet.
+Consider: a slightly richer, warmer tone. Or a very subtle geometric pattern (dots, lines) at low opacity. Or gradient from slightly darker at edges to lighter in center. Something that makes the board feel like a work surface rather than empty space.
+
+**The pipeline title:**
+Current: "Non-Surgical Pipeline ▾" in regular weight.
+Make it more commanding — larger, bolder, darker. This is the name of the thing you're looking at. It should feel like a heading, not a dropdown label.
+
+**Cards:**
+The cards are the primary work objects. They should feel substantial — like something you'd want to pick up and move. Consider a slightly more pronounced shadow, a very subtle gradient on the card background (pure white at top, barely-perceptible warm tint at bottom), or a left accent bar on cards that matches their column color.
+
+**Emerald usage:**
+The brand color should appear: in column header accents, in the appointment chip icon, in the "+" Add Lead button, in the active filter state, in the rotting-free pipeline health indicator. Right now it's absent from the board almost entirely.
+
+---
+
+## WHAT NOT TO TOUCH
+
+- Do not change drag-and-drop logic or API routes
+- Do not change column data, stage names, or card content fields  
+- Do not remove the appointment chip or rotting indicator you're adding
+- Do not add back any removed elements (metric pills, source tags, column footer buttons, floating badges)
+- Do not change the sidebar, top bar, dashboard, or any other page
+- Do not modify Prisma schema or seed data
+- Do not add new npm packages
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Metric strip / value pills removed entirely from control bar
+- [ ] Control bar is clean: pipeline title left, three buttons right
+- [ ] All status badge pills removed from cards
+- [ ] Appointment chip appears on cards with linked upcoming appointments
+- [ ] Appointment chip: CalendarDays icon + human-readable date, emerald color, no border/background
+- [ ] Past appointment chip: amber color to signal "did they show?"
+- [ ] Rotting indicator: "Xd overdue" text only, three color tiers, no pill
+- [ ] Cards with no appointment and not rotting have empty top-right
+- [ ] Board background feels rich and intentional — not generic gray
+- [ ] Column headers have visual identity beyond just a colored left border
+- [ ] Brand emerald color appears meaningfully throughout the board
+- [ ] Cards feel substantial and premium
+- [ ] Pipeline title is bold and commanding
+- [ ] No TypeScript errors
+- [ ] No console errors

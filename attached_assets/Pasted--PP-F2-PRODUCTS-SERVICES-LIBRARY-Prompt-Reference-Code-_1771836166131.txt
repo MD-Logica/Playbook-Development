@@ -1,0 +1,203 @@
+# PP-F2 — PRODUCTS & SERVICES LIBRARY
+
+## Prompt Reference
+Code: PP-F2 | Builds the Products & Services sub-page under Settings → Finances
+Run on MEDIUM AUTONOMY — introduces new item types, tiered pricing logic, and bundle composition model.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-F1 (Income Categories) being already implemented. The Income Category selector in this prompt pulls from the tree built in PP-F1. Products & Services currently shows a Coming Soon state under Settings → Finances — replace that with the full page built here. PP-F3 (Quote Builder) depends on this prompt being complete first.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to implement the Products & Services page.
+- When complete: verify all item types can be created and saved, tiered pricing calculates correctly in preview, bundles correctly reference component items, income category selector pulls from PP-F1 data, archive/restore works, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+The Products & Services library is the master catalog of every billable item a practice offers. Items from this library are added as line items to quotes and invoices. Each item type has its own pricing model. Bundles group multiple items under a single patient-facing line item. Income category assignment enables drill-down financial reporting.
+
+---
+
+## Page Layout
+
+### Header
+- Title: "Products & Services"
+- Subtitle: "Build your catalog of billable items. These appear as line items on quotes and invoices."
+- Top right: **"+ Add Item"** (primary button)
+- Above table, right-aligned: **"Show Archived"** toggle
+
+### Item List Display
+A table with columns:
+- **Name**
+- **Type** — pill badge (Service, Tiered Service, Hourly Service, Bundle, Inventory, Non-Inventory)
+- **Price** — display varies by type (e.g., "$18,000", "$1,400/hr", "Tiered", "Bundle")
+- **Taxable** — Yes / No
+- **Income Category** — category name (deepest assigned level)
+- **Status** — only visible when Show Archived is on
+- **Actions** — Edit (pencil), Archive (archive icon)
+
+Default view shows Active items only. Group by item type with subtle section headers, or allow flat list — flat list is fine for now.
+
+---
+
+## Add / Edit Item — Modal
+
+A single modal that adapts its fields based on the selected item type.
+
+### Fields Present on ALL Item Types
+- **Item Name** — text input, required, max 64 characters, must be unique (case-insensitive)
+- **Item Type** — dropdown selector (see types below). Changing type resets pricing fields.
+- **Description** — textarea, optional, max 500 characters. Free text for internal notes, third party payment info, or anything staff needs to know.
+- **Income Category** — searchable dropdown pulling from active IncomeCategory tree (PP-F1). Can select at any level. Shows full path (e.g., "Surgical › Face › Facelift"). Optional but recommended.
+- **Taxable** — toggle, default off
+- **Internal Cost** — currency input, optional. Used for margin reporting. Not shown on quotes/invoices.
+
+---
+
+## Item Types & Pricing Fields
+
+### 1. Service (Flat Fee)
+A service with a single fixed price.
+- **Price** — currency input, required
+
+### 2. Service (Hourly)
+A service billed at an hourly rate.
+- **Hourly Rate** — currency input, required (e.g., $1,400/hr)
+- When added to a quote: coordinator inputs estimated hours → system calculates total automatically
+
+### 3. Service (Tiered)
+Used for anesthesia and facility fees. Has a higher base rate for the first hour and a lower rate for subsequent hours.
+- **Base Rate (First Hour)** — currency input, required (e.g., $450)
+- **Subsequent Rate (Per Hour)** — currency input, required (e.g., $350)
+- When added to a quote: coordinator inputs total surgery hours → system calculates:
+  - If hours ≤ 1: total = base rate
+  - If hours > 1: total = base rate + (subsequent rate × (hours - 1))
+- Show a live preview in the modal: "Example: 3 hours = $450 + ($350 × 2) = $1,150"
+
+### 4. Bundle
+A named group of existing items sold together. Prints as a single line item on patient-facing output.
+- **Bundle Price** — currency input, required. Can differ from sum of components.
+- **Components** — multi-select searchable list of existing active items (excluding other bundles to prevent nesting). Each component shows name and type. At least 2 components required.
+- Components are visible to staff in the platform at all times.
+- On patient-facing quotes/invoices: bundle prints as single line item with bundle name and bundle price only.
+- A per-quote toggle (built in PP-F3) will allow showing/hiding components — default hidden.
+
+### 5. Inventory Item
+A physical product tracked in inventory.
+- **Price** — currency input, required
+- **Current Stock** — integer input, optional (for future inventory tracking)
+
+### 6. Non-Inventory Item
+A physical product not tracked in inventory.
+- **Price** — currency input, required
+
+---
+
+## Archive Behavior
+Same pattern as other managed lists:
+- Active items: Archive icon available
+- If item is used in any active quotes or invoices: show confirmation warning — "This item is used in X active quotes or invoices. Archiving it will not affect existing quotes or invoices, but it will no longer be available to add to new ones. Continue?"
+- If item is a component of a bundle: warn — "This item is a component of [Bundle Name]. Archiving it will remove it from that bundle. Continue?"
+- Archived items: show Restore option, and "Delete Permanently" only if not referenced in any quotes/invoices
+- Show Archived toggle reveals archived items with muted styling
+
+---
+
+## Technical Notes
+
+### Database Model
+
+```prisma
+model ProductService {
+  id               String          @id @default(cuid())
+  name             String
+  description      String?
+  itemType         ItemType
+  price            Decimal?        // flat fee, bundle price, or null for tiered/hourly
+  hourlyRate       Decimal?        // for HOURLY type
+  tieredBaseRate   Decimal?        // for TIERED type - first hour rate
+  tieredSubRate    Decimal?        // for TIERED type - subsequent hour rate
+  internalCost     Decimal?
+  taxable          Boolean         @default(false)
+  currentStock     Int?            // for INVENTORY type
+  incomeCategoryId String?
+  incomeCategory   IncomeCategory? @relation(fields: [incomeCategoryId], references: [id])
+  status           ItemStatus      @default(ACTIVE)
+  practiceId       String
+  bundleComponents BundleComponent[] @relation("BundleParent")
+  bundleMemberships BundleComponent[] @relation("BundleChild")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model BundleComponent {
+  id        String         @id @default(cuid())
+  bundleId  String
+  bundle    ProductService @relation("BundleParent", fields: [bundleId], references: [id])
+  itemId    String
+  item      ProductService @relation("BundleChild", fields: [itemId], references: [id])
+  sortOrder Int            @default(0)
+}
+
+enum ItemType {
+  SERVICE_FLAT
+  SERVICE_HOURLY
+  SERVICE_TIERED
+  BUNDLE
+  INVENTORY
+  NON_INVENTORY
+}
+
+enum ItemStatus {
+  ACTIVE
+  ARCHIVED
+}
+```
+
+### API Routes
+- `GET /api/settings/products-services` — fetch all items for practice (filter by status)
+- `POST /api/settings/products-services` — create item
+- `PATCH /api/settings/products-services/:id` — update item
+- `PATCH /api/settings/products-services/:id/archive` — archive
+- `PATCH /api/settings/products-services/:id/restore` — restore
+- `DELETE /api/settings/products-services/:id` — permanent delete (archived, unreferenced only)
+
+### Clerk Org Scoping
+All operations scoped to current Clerk Organization (practiceId from org context).
+
+---
+
+## Delivery Checklist
+- [ ] Products & Services page replaces Coming Soon state in Settings → Finances
+- [ ] Item list table renders correctly with all columns
+- [ ] Show Archived toggle works
+- [ ] "+ Add Item" opens modal
+- [ ] Item type selector changes displayed pricing fields correctly
+- [ ] All 6 item types can be created and saved
+- [ ] Service (Flat Fee) saves price correctly
+- [ ] Service (Hourly) saves hourly rate correctly
+- [ ] Service (Tiered) saves base rate and subsequent rate correctly
+- [ ] Tiered live preview calculates and displays correctly in modal
+- [ ] Bundle requires minimum 2 components
+- [ ] Bundle component selector pulls from active non-bundle items
+- [ ] Inventory and Non-Inventory items save correctly
+- [ ] Income Category selector pulls from PP-F1 tree, shows full path
+- [ ] Internal Cost field present on all item types
+- [ ] Taxable toggle works
+- [ ] Edit modal pre-populates correctly for all item types
+- [ ] Archive with active quote/invoice warning works
+- [ ] Archive with bundle membership warning works
+- [ ] Restore works on archived items
+- [ ] Hard delete only on archived unreferenced items
+- [ ] ProductService and BundleComponent models created and migrated
+- [ ] All API routes working correctly
+- [ ] Clerk org scoping applied
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

@@ -1,0 +1,406 @@
+# PLAYBOOKMD — PHASE 0: FOUNDATION PROMPT
+
+---
+
+## ⚠️ CRITICAL — READ THIS BEFORE WRITING ANY CODE
+
+The previous attempt used the wrong tech stack. You must use exactly what is specified below. Do not substitute, simplify, or default to Replit templates.
+
+**Specifically prohibited:**
+- Do NOT use Vite
+- Do NOT use Express
+- Do NOT use Passport or any session-based auth
+- Do NOT use Drizzle ORM
+- Do NOT use Replit's built-in database or key-value store
+- Do NOT use any Replit-native packages or plugins
+
+**How to start:**
+Delete all existing code. Begin fresh by running:
+```
+npx create-next-app@latest playbookmd --typescript --tailwind --eslint --app --src-dir=no --import-alias="@/*"
+```
+
+Then install the required packages listed below. Do not proceed until the stack matches exactly what is specified.
+
+---
+
+## WHAT YOU ARE BUILDING
+
+You are building **PlaybookMD**, a Practice Revenue Optimization (PRO) platform for cash-pay aesthetic medicine practices. This is **Phase 0 — foundation only**. You are setting up the project infrastructure, data models, and seed data. Do not build any UI beyond a basic "setup complete" confirmation page. Every decision made here must support a complex, multi-module application built in subsequent phases.
+
+---
+
+## TECH STACK — NON-NEGOTIABLE. DO NOT DEVIATE.
+
+- **Framework:** Next.js 15 with App Router
+- **Database:** PostgreSQL via **Prisma ORM** exclusively. All database access goes through Prisma. No raw SQL. No platform-native database tools.
+- **Database Provider:** Neon (serverless Postgres). Connection string via `DATABASE_URL` environment variable.
+- **Authentication:** Clerk. Use Clerk's Next.js SDK only. No custom auth. No platform-native auth.
+- **Styling:** Tailwind CSS
+- **Form Validation:** Zod
+- **State Management:** TanStack Query (React Query) + Zustand — install now, configure later
+- **Package Manager:** npm
+
+**Required packages to install:**
+```
+npm install @prisma/client prisma @clerk/nextjs @tanstack/react-query zustand zod
+npx prisma init
+```
+
+---
+
+## ARCHITECTURE RULES — ABSOLUTE. FOLLOW WITHOUT EXCEPTION.
+
+1. All credentials and service connections via environment variables only. Never hardcoded.
+
+2. Create a `.env.example` file listing every required variable with placeholder values and a comment explaining each one.
+
+3. Build a `/lib` abstraction layer:
+   - `/lib/db.ts` — exports the Prisma client singleton
+   - `/lib/auth.ts` — exports Clerk helper utilities
+   - No component or API route ever imports Prisma or Clerk directly. They always import from `/lib`.
+
+4. All data mutations and queries go through Next.js API routes in `/app/api/`. No direct database calls from client components. Ever.
+
+5. No platform-native databases, key-value stores, or Replit-specific packages. This codebase must run anywhere Node.js runs.
+
+6. Create a `/prisma/seed.ts` file with comprehensive dummy data as specified below. Seeding must be runnable with `npx prisma db seed`.
+
+---
+
+## FOLDER STRUCTURE
+
+```
+/app
+  /api              ← all API routes live here
+  /(auth)           ← Clerk auth pages (sign-in, sign-up)
+  /(dashboard)      ← protected app routes (future phases)
+    /dashboard
+      page.tsx      ← placeholder dashboard page
+/components
+  /ui               ← reusable UI primitives (future)
+/lib
+  db.ts             ← Prisma client singleton
+  auth.ts           ← Clerk helper utilities
+/prisma
+  schema.prisma     ← full data schema
+  seed.ts           ← seed file with dummy data
+/types
+  index.ts          ← shared TypeScript types
+.env.example        ← all required env vars documented
+```
+
+---
+
+## PRISMA SCHEMA
+
+Design the schema to support the full application roadmap, not just Phase 0. Every model below must be included even if not all fields are used immediately. Use proper relations, indexes on foreign keys and commonly queried fields, and soft deletes (`deletedAt DateTime?`) on all major entities.
+
+### Practice
+The top-level tenant. Everything belongs to a practice.
+```
+id, name, address, city, state, phone, email, timezone, logoUrl,
+settings (Json), createdAt, updatedAt, deletedAt
+```
+
+### User
+Staff members. Linked to Clerk via clerkId.
+```
+id, clerkId (unique), practiceId, firstName, lastName, email, phone,
+role (enum: OWNER, MANAGER, PROVIDER, COORDINATOR, FRONT_DESK, MARKETING),
+avatarUrl, isActive, createdAt, updatedAt, deletedAt
+```
+
+### Patient
+The core patient/contact record.
+```
+id, practiceId, firstName, lastName, email, phone, dateOfBirth, gender,
+address, city, state, zip,
+referralSource (enum: GOOGLE_ADS, FACEBOOK_ADS, INSTAGRAM, WORD_OF_MOUTH, WALK_IN, WEBSITE, PHONE, OTHER),
+referredByPatientId (self-relation),
+status (enum: LEAD, ACTIVE, INACTIVE, VIP, FLAGGED),
+isMinor (Boolean), parentGuardianId (self-relation),
+photoConsentStatus (enum: NONE, INTERNAL_ONLY, MARKETING_APPROVED),
+isVip, vipAlias, notes, tags (String[]),
+createdAt, updatedAt, deletedAt
+```
+
+### Pipeline
+Customizable pipelines (Surgical, Non-Surgical, etc.)
+```
+id, practiceId, name, description, isDefault, isActive, order,
+createdAt, updatedAt
+```
+
+### PipelineStage
+Stages within a pipeline.
+```
+id, pipelineId, name, order, color,
+rotDaysWarning (Int — days before card turns yellow),
+rotDaysCritical (Int — days before card turns red),
+isWon, isLost, createdAt, updatedAt
+```
+
+### Opportunity
+A lead/deal moving through a pipeline. The central CRM object.
+```
+id, practiceId, patientId, pipelineId, stageId, assignedToId (User),
+title, value (Decimal),
+conversionType (enum: NET_NEW, UPSELL, CROSS_SELL),
+referralSource, referredByPatientId,
+lastActivityAt, stageEnteredAt,
+isWon, isLost, lostReason, wonAt, lostAt,
+createdAt, updatedAt, deletedAt
+```
+
+### Activity
+The global timeline. Every touchpoint for a patient or opportunity logs here.
+```
+id, practiceId, patientId, opportunityId (optional), userId,
+type (enum: NOTE, CALL, SMS, EMAIL, APPOINTMENT, QUOTE, INVOICE, PAYMENT,
+           CONSENT, DOCUMENT, PHOTO, TASK, STAGE_CHANGE, SYSTEM),
+body, metadata (Json), isInternal,
+createdAt, updatedAt
+```
+
+### Appointment
+```
+id, practiceId, patientId, opportunityId (optional), providerId (User),
+createdById (User),
+appointmentType (enum: CONSULT, FOLLOW_UP, TREATMENT, SURGERY, POST_OP, OTHER),
+title, startTime, endTime,
+status (enum: PENDING, CONFIRMED, COMPLETED, CANCELLED, NO_SHOW, HOLD),
+location, notes, confirmationSentAt, reminderSentAt,
+cancelledAt, cancelReason, noShowFee (Decimal),
+createdAt, updatedAt, deletedAt
+```
+
+### AppointmentHold
+Temporary holds with pay-to-confirm links.
+```
+id, appointmentId, expiresAt,
+paymentRequirement (enum: NONE, CARD_ON_FILE, DEPOSIT, FULL_PAYMENT),
+secureToken (unique), completedAt, createdAt
+```
+
+### Quote
+```
+id, practiceId, patientId, opportunityId, createdById, assignedToId,
+status (enum: DRAFT, SENT, VIEWED, ACCEPTED, DECLINED, EXPIRED),
+subtotal (Decimal), discountAmount (Decimal), discountReason, total (Decimal),
+expiresAt, sentAt, viewedAt, acceptedAt, declinedAt, notes,
+createdAt, updatedAt, deletedAt
+```
+
+### QuoteLineItem
+```
+id, quoteId, procedureId (optional), description, quantity,
+unitPrice (Decimal), discountAmount (Decimal), total (Decimal),
+providerId (optional), coordinatorId (optional), order,
+createdAt, updatedAt
+```
+
+### Invoice
+```
+id, practiceId, patientId, quoteId (optional),
+status (enum: DRAFT, SENT, PARTIAL, PAID, OVERDUE, VOID),
+subtotal (Decimal), discountAmount (Decimal), total (Decimal),
+amountPaid (Decimal), balanceDue (Decimal),
+dueDate, paidAt, notes,
+createdAt, updatedAt, deletedAt
+```
+
+### Payment
+```
+id, practiceId, patientId, invoiceId, amount (Decimal),
+method (enum: CARD, ACH, CASH, CHECK, FINANCING, MEMBERSHIP_CREDIT),
+stripePaymentIntentId,
+status (enum: PENDING, SUCCEEDED, FAILED, REFUNDED),
+processedAt, createdAt, updatedAt
+```
+
+### Procedure
+The service/treatment catalog.
+```
+id, practiceId, name, category, description,
+defaultDuration (Int, minutes),
+retailPrice (Decimal), floorPrice (Decimal),
+isActive, createdAt, updatedAt
+```
+
+### TreatmentPlan
+```
+id, practiceId, patientId, createdById, title,
+status (enum: ACTIVE, COMPLETED, PAUSED, CANCELLED),
+notes, startDate, endDate,
+createdAt, updatedAt
+```
+
+### TreatmentPlanItem
+```
+id, treatmentPlanId, procedureId, description, frequency,
+recommendedIntervalDays, lastPerformedAt, nextDueAt,
+completedSessions, totalSessions, notes, order,
+createdAt, updatedAt
+```
+
+### Document
+Consents, intake forms, operative reports, lab results.
+```
+id, practiceId, patientId, uploadedById,
+type (enum: INTAKE_FORM, CONSENT, OPERATIVE_REPORT, LAB_RESULT, PRESCRIPTION, OTHER),
+title, fileUrl, fileSize, mimeType,
+signedAt, signedByPatient, esignatureId,
+consentForPhotos, consentForMarketing, isVoided,
+createdAt, updatedAt
+```
+
+### Photo
+```
+id, practiceId, patientId, uploadedById, appointmentId (optional),
+fileUrl, thumbnailUrl, fileSize,
+type (enum: BEFORE, AFTER, INTRA_OP, CLINICAL, OTHER),
+procedureCategory, bodyArea, tags (String[]),
+consentStatus (enum: NONE, INTERNAL_ONLY, MARKETING_APPROVED),
+exifStripped, isMarketingEligible, takenAt,
+createdAt, updatedAt, deletedAt
+```
+
+### Task
+```
+id, practiceId, patientId (optional), opportunityId (optional),
+assignedToId, createdById, title, description, dueDate,
+priority (enum: LOW, MEDIUM, HIGH, URGENT),
+status (enum: PENDING, IN_PROGRESS, COMPLETED, CANCELLED),
+completedAt, createdAt, updatedAt
+```
+
+### Message
+Unified inbox messages across all channels.
+```
+id, practiceId, patientId,
+channelType (enum: EMAIL, SMS, INTERNAL_CHAT, PHONE),
+direction (enum: INBOUND, OUTBOUND),
+subject, body, fromAddress, toAddress,
+isRead, assignedToId, threadId, externalId, sentAt,
+createdAt, updatedAt
+```
+
+### CallLog
+```
+id, practiceId, patientId (optional), userId (optional),
+direction (enum: INBOUND, OUTBOUND),
+duration (Int, seconds), recordingUrl, transcriptUrl, campaignSource,
+status (enum: ANSWERED, MISSED, VOICEMAIL),
+startedAt, endAt, createdAt, updatedAt
+```
+
+### Membership
+```
+id, practiceId, patientId, name,
+type (enum: MONTHLY, ANNUAL, PACKAGE),
+status (enum: ACTIVE, PAUSED, CANCELLED, EXPIRED),
+creditBalance (Decimal), totalCredits (Decimal), creditsUsed (Decimal),
+billingAmount (Decimal), billingCycleDay,
+startDate, endDate, nextBillingDate, stripeSubscriptionId,
+createdAt, updatedAt
+```
+
+### ImplantRecord
+```
+id, practiceId, patientId, appointmentId,
+manufacturer, serialNumber, model, implantType,
+implantedAt, warrantyExpiresAt, notes,
+createdAt, updatedAt
+```
+
+---
+
+## SEED DATA
+
+Populate the database with the following realistic dummy data for a practice called **"Luminary Aesthetics"** based in Miami, FL.
+
+- **1 Practice:** Luminary Aesthetics, Miami FL, Eastern timezone
+- **5 Users:** Dr. Sofia Reyes (Owner/Provider), Amanda Torres (Practice Manager), Carlos Mendez (Patient Coordinator), Priya Patel (Front Desk), Jessica Wu (Provider/NP)
+- **2 Pipelines:**
+  - "Non-Surgical": New Inquiry → Consult Booked → Consult Completed → Quote Sent → Booked → Recall
+  - "Surgical": New Inquiry → Consult Booked → Consult Completed → Quote Sent → Surgery Booked → Pre-Op Complete → Post-Op → Recall
+- **12 Procedures:** Botox, Dermal Fillers, Chemical Peel, Hydrafacial, Laser Resurfacing, Microneedling, Rhinoplasty, Breast Augmentation, Facelift, Blepharoplasty, Tummy Tuck, Mommy Makeover — each with realistic retail and floor prices
+- **15 Patients:** varied demographics, referral sources, and statuses. Include some VIP patients, one minor with parent linkage, and a mix of active/inactive/lead statuses.
+- **25+ Opportunities:** spread across both pipelines and all stages. Vary the `lastActivityAt` values so some cards will appear "rotting" when the pipeline view is built. Mix of NET_NEW and UPSELL conversion types. Assigned to different coordinators.
+- **30+ Appointments:** spanning 60 days (30 past, 30 future). Varied types (CONSULT, TREATMENT, SURGERY, etc.) and statuses (CONFIRMED, COMPLETED, CANCELLED, NO_SHOW). Tied to opportunities where appropriate.
+- **20+ Activities:** notes, stage changes, calls, and emails logged to patient timelines across multiple patients.
+- **8 Quotes:** various statuses (DRAFT, SENT, ACCEPTED, EXPIRED) with realistic line items tied to procedures.
+- **5 Treatment Plans:** assigned to patients with multiple line items each.
+
+Ensure `lastActivityAt` values on opportunities are varied — some within the last 2 days (healthy), some 8–10 days ago (warning), some 15+ days ago (critical/rotting). This makes the pipeline visually meaningful when built.
+
+---
+
+## ENVIRONMENT VARIABLES
+
+Create `.env.example` with the following — each with a placeholder value and an explanatory comment:
+
+```bash
+# Neon PostgreSQL connection string
+DATABASE_URL=""
+
+# Clerk authentication — get from clerk.com dashboard
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
+CLERK_SECRET_KEY=""
+
+# Clerk redirect URLs
+NEXT_PUBLIC_CLERK_SIGN_IN_URL="/sign-in"
+NEXT_PUBLIC_CLERK_SIGN_UP_URL="/sign-up"
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL="/dashboard"
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL="/dashboard"
+
+# App URL — use your Replit preview or deployment URL
+NEXT_PUBLIC_APP_URL=""
+```
+
+---
+
+## CLERK CONFIGURATION
+
+Set up Clerk middleware to protect all routes under `/(dashboard)`. Unauthenticated users must be redirected to `/sign-in`. After signing in, redirect to `/dashboard`.
+
+Create the following Clerk auth pages:
+- `app/(auth)/sign-in/[[...sign-in]]/page.tsx`
+- `app/(auth)/sign-up/[[...sign-up]]/page.tsx`
+
+Use Clerk's standard `<SignIn />` and `<SignUp />` components. Keep styling minimal for now — centered on screen, clean white background.
+
+---
+
+## DASHBOARD PLACEHOLDER
+
+Build a simple `/dashboard` page that:
+- Is protected by Clerk (redirect to sign-in if unauthenticated)
+- Pulls the practice name from the database via a Prisma query through `/lib/db.ts`
+- Displays: "✅ Phase 0 Complete — Welcome to [Practice Name]"
+- Shows the currently logged-in user's email from Clerk
+- Has no other UI — this is a confirmation page only
+
+This page confirms that auth, database, and the abstraction layer are all working correctly before Phase 1 begins.
+
+---
+
+## DELIVERY CHECKLIST
+
+Do not mark Phase 0 complete until every item below is confirmed:
+
+- [ ] Next.js 15 initialized with App Router (confirmed by presence of `/app` directory, not `/pages`)
+- [ ] Prisma installed and `schema.prisma` contains all models listed above
+- [ ] Prisma migration run successfully against Neon database
+- [ ] Seed file written and executes without errors (`npx prisma db seed`)
+- [ ] Clerk middleware configured — `/(dashboard)` routes are protected
+- [ ] `/lib/db.ts` exports Prisma singleton
+- [ ] `/lib/auth.ts` exports Clerk utilities
+- [ ] No component or route imports Prisma or Clerk directly — only via `/lib`
+- [ ] `.env.example` created with all variables documented
+- [ ] All API routes live under `/app/api/`
+- [ ] Dashboard placeholder page loads, shows practice name from DB, shows Clerk user email
+- [ ] Zero TypeScript errors (`npm run build` passes)
+- [ ] Zero console errors on page load
+- [ ] No Replit-native packages, Vite, Express, Drizzle, or Passport anywhere in the codebase

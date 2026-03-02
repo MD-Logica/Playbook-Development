@@ -1,0 +1,91 @@
+# PR-A1 — LEAD CREATION FORM: MULTI-SELECT PROCEDURES + AUTO TITLE
+
+## Prompt Reference
+Code: PR-A1 | Revision to lead creation form — multi-select procedure chips, auto-generated lead title, lead source sets patient primary source
+Run on MEDIUM AUTONOMY — touches lead creation form and patient record creation logic.
+
+## Prompt Order & Dependencies
+**Run this prompt before PR-A2.** PR-A2 updates the opportunity panel and depends on the procedure of interest and lead source data model changes made here being in place first.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify files necessary to implement the changes described below.
+- The lead creation form currently has 9 fields and is working correctly — do not restructure it, only modify the specific fields described.
+- When complete: verify the lead creation modal opens without errors, procedure chips render and are selectable, lead title auto-generates correctly, lead source correctly sets patient primary source on record creation, and no TypeScript or console errors exist.
+- Do not mark complete until all checklist items below are verified.
+
+---
+
+## Context
+The lead creation form currently has a single-select dropdown for Procedure of Interest and a single-select dropdown for Lead Source. Both are already pulling correctly from the managed lists built in PP-A1/PP-A2. This prompt makes two targeted changes to the form: (1) converts Procedure of Interest to multi-select chips, and (2) adds auto-generated lead title logic based on selected procedures. Lead Source behavior is also clarified — it must set the patient-level primary source at creation time.
+
+---
+
+## Change 1: Procedure of Interest — Multi-Select Chips
+
+### Current Behavior
+Single-select dropdown pulling from ProcedureType managed list.
+
+### New Behavior
+Replace the dropdown with a chip-based multi-select, consistent with the tag chip pattern already used on patient records.
+
+### Interaction
+- Display a dropdown/popover that lists all active Procedure Types when the field is clicked
+- Selecting a procedure adds it as a chip inline in the field area
+- Each chip has an × to remove it
+- Multiple procedures can be selected — no limit
+- Pulls from active ProcedureTypes (same managed list, same source)
+- Visual style consistent with existing tag chips in the app
+
+### Data Model
+The lead/opportunity record must support storing multiple procedure types. If the current schema only stores a single procedureId, update to a join table or array field as appropriate:
+- `OpportunityProcedure` join table: `opportunityId`, `procedureTypeId`
+- Migrate any existing single procedureId values to the new structure
+
+---
+
+## Change 2: Auto-Generated Lead Title
+
+### Behavior
+The Lead Title field auto-populates in real time as procedures are selected. The title is derived entirely from the selected procedure names — no patient name included.
+
+### Title Generation Logic
+- **1 procedure selected:** "[Procedure]" → e.g., "Rhinoplasty"
+- **2 procedures selected:** "[Procedure 1] + [Procedure 2]" → e.g., "Facelift + Neck Lift"
+- **3+ procedures selected:** "[Procedure 1] + [Procedure 2] +[n]" → e.g., "Facelift + Neck Lift +1", "Facelift + Neck Lift +2"
+
+Where n = total procedures minus 2 (the overflow count).
+
+### Rules
+- Title field updates live as procedures are added or removed
+- If staff manually edits the title field, auto-generation stops for that session — do not override manual input
+- If all procedures are cleared after a manual edit, revert to auto-generation
+- Title field remains fully editable at all times
+- If no procedures are selected, title field is blank (not auto-filled)
+
+---
+
+## Change 3: Lead Source Sets Patient Primary Source
+
+### Behavior
+The Lead Source dropdown on the lead creation form must write to the patient-level `primarySource` field on the Patient/Contact record at creation time — not just to the opportunity record.
+
+### Clarification
+- If creating a brand new patient via the lead form: `patient.primarySource = selectedLeadSource`
+- If adding a new opportunity to an existing patient: do NOT overwrite the existing `patient.primarySource` — the lead source selected here belongs to the opportunity only (opportunity-level source handling will be addressed in PR-A2)
+- This distinction is important — new patient = set primary source, existing patient = leave primary source untouched
+
+---
+
+## Delivery Checklist
+- [ ] Procedure of Interest field converted to multi-select chip input
+- [ ] Chip visual style consistent with existing tag chips
+- [ ] OpportunityProcedure join table created and migrated
+- [ ] Existing procedure data migrated to new structure
+- [ ] Lead title auto-generates live based on selected procedures
+- [ ] Title logic correct for 1, 2, and 3+ procedures
+- [ ] Manual title edits are respected and not overridden
+- [ ] Lead Source correctly sets patient.primarySource for new patients only
+- [ ] Lead Source does not overwrite primarySource for existing patients
+- [ ] No TypeScript errors, no console errors
+- [ ] Lead creation form submits successfully and creates records correctly

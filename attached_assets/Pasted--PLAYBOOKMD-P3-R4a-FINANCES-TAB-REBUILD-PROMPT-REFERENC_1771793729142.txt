@@ -1,0 +1,124 @@
+# PLAYBOOKMD — P3-R4a: FINANCES TAB REBUILD
+
+## PROMPT REFERENCE
+Code: P3-R4a | Single job: rename Quotes tab → Finances, rebuild content
+Do not change anything else. Run on MEDIUM AUTONOMY.
+
+---
+
+## CONTEXT
+
+A quote is an estimate — it is not paid. The quote gets accepted and promoted into an invoice. The invoice is what gets paid. The current tab conflates these two objects. This prompt separates them correctly.
+
+---
+
+## STEP 1: RENAME TAB
+
+In the opportunity panel tab bar:
+- Rename "Quotes" → "Finances"
+- Tab order: Overview · Appointments · **Finances** · Forms · Activity
+- Icon: `Landmark` from lucide if tab icons are used
+
+---
+
+## STEP 2: REBUILD TAB CONTENT
+
+Replace all current content in this tab with three sections:
+
+---
+
+### SECTION 1: QUOTES
+
+Label: "QUOTES" — 10px uppercase weight 600 `--text-muted`
+
+Each quote = one card:
+- Border-radius: 8px, border: `1px solid var(--border-default)`
+- Left border 3px: amber `#F59E0B` PENDING, emerald `#10B981` ACCEPTED, red `#EF4444` EXPIRED, gray DRAFT
+- Padding: 14px
+- Procedure name: 13px weight 600
+- Amount: Geist Mono 20px weight 800 — the estimate, NOT a payment amount
+- Status pill: top-right
+- Date: 11px Geist Mono `--text-muted` "Created Feb 22"
+- If ACCEPTED: "→ Converted to Invoice #INV-005" in emerald 12px below date
+
+**Do NOT show any payment progress, paid amounts, or progress bars on quote cards. Quotes are estimates only.**
+
+If no quotes: "No quotes yet" `--text-muted` + "+ Create Quote" placeholder button
+
+---
+
+### SECTION 2: INVOICES
+
+Label: "INVOICES" — 10px uppercase weight 600 `--text-muted`, margin-top 20px
+
+Each invoice = one card (same card styling as quotes):
+- Left border: emerald if PAID, amber if PENDING/PARTIAL, red if OVERDUE
+- Invoice number: 11px Geist Mono `--text-muted`
+- Description: 13px weight 600
+- Quote link: "From Quote #Q-XXXX →" in 11px `--text-muted` if a source quote exists
+
+**Payment breakdown — show all three numbers explicitly, no progress bar:**
+```
+TOTAL          PAID           REMAINING
+$8,000         $5,000         $3,000
+```
+- Label: 9px uppercase `--text-muted`
+- Value: Geist Mono 15px weight 700
+- TOTAL: `--text-primary`
+- PAID: emerald `#10B981`
+- REMAINING: red `#EF4444` if > 0, emerald if 0
+
+If fully paid: replace three columns with "✓ Paid in Full" in emerald 14px weight 600
+
+Status badge: PAID / PARTIAL / PENDING / OVERDUE with appropriate colors
+Due date if exists: 11px Geist Mono `--text-muted`
+"Record Payment →" link bottom-right (placeholder toast)
+
+If no invoices: "No invoices yet" `--text-muted`
+
+---
+
+### SECTION 3: PAYMENT HISTORY
+
+Label: "PAYMENT HISTORY" — 10px uppercase weight 600 `--text-muted`, margin-top 20px
+
+Add a `Payment` model if it doesn't exist:
+```prisma
+model Payment {
+  id            String   @id @default(cuid())
+  practiceId    String
+  patientId     String
+  invoiceId     String?
+  opportunityId String?
+  amount        Float
+  method        String?
+  description   String?
+  paidAt        DateTime @default(now())
+  createdAt     DateTime @default(now())
+  practice      Practice @relation(fields: [practiceId], references: [id])
+  patient       Patient  @relation(fields: [patientId], references: [id])
+}
+```
+Run migration. Seed 1-2 payment records per patient with varied descriptions (Deposit, Balance Payment, Consultation Fee) and methods (Visa, Cash, CareCredit).
+
+Each payment row:
+- Date: Geist Mono 12px `--text-muted`
+- Description: 13px `--text-secondary`
+- Amount: Geist Mono 13px weight 600 emerald
+- Method: 11px `--text-muted`
+
+If no payments: "No payments recorded" `--text-muted`
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] Tab renamed to "Finances"
+- [ ] Quote cards show estimate amount only — no payment data on quotes
+- [ ] ACCEPTED quotes show "→ Converted to Invoice #INV-XXX"
+- [ ] Invoice cards show TOTAL / PAID / REMAINING as three explicit columns
+- [ ] REMAINING is red if > 0, replaced by "✓ Paid in Full" if 0
+- [ ] Invoice links back to source quote
+- [ ] Payment model created, migrated, seeded
+- [ ] Payment History section renders (empty state if no data)
+- [ ] No TypeScript errors, no console errors

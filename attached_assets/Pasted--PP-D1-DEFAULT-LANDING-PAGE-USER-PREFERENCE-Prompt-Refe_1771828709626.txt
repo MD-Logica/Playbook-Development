@@ -1,0 +1,86 @@
+# PP-D1 — DEFAULT LANDING PAGE USER PREFERENCE
+
+## Prompt Reference
+Code: PP-D1 | Adds per-user default landing page preference to account settings
+Run on LOW AUTONOMY — small feature, touches user preferences and login redirect logic only.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+No dependencies. Can be run independently. Run before PP-D2 but order is not critical.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- Only modify or create files necessary to implement the preference setting and login redirect.
+- When complete: verify the preference dropdown appears in user account settings, saving a preference persists correctly, and logging in redirects to the correct page. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+Currently all users land on the Dashboard after logging in regardless of their role or workflow preference. This prompt adds a simple per-user setting to define a preferred landing page, so coordinators, providers, and front desk staff can each set the view most relevant to their daily workflow.
+
+---
+
+## Change 1: User Preference Setting
+
+### Where
+In the user's account preferences or profile settings page. If no such page exists yet, add a simple "Account" or "Preferences" section accessible from the user avatar/menu in the top navigation (the "VT" avatar circle visible in the top right of the app).
+
+### Setting
+A single dropdown field labeled **"Default landing page"** with a sublabel: "Choose which page you see first when you log in."
+
+### Options
+Dynamically populate the dropdown with:
+- **Dashboard** (always first, this is the system default)
+- **Pipeline — [Pipeline Name]** for each active pipeline in the practice (e.g., "Pipeline — Surgical", "Pipeline — Non-Surgical")
+- **Patients**
+- **Appointments**
+
+As new pipelines are created or deleted, this list should update accordingly. Pipeline options should reflect the current practice's active pipelines pulled from the database.
+
+### Default Value
+Dashboard — applies to all users until they explicitly change it.
+
+### Storage
+Store the preference on the user record. Add a `defaultLandingPage` field:
+
+```prisma
+model User {
+  // ... existing fields ...
+  defaultLandingPage  String?  // null = Dashboard (default)
+}
+```
+
+For pipeline-specific preferences, store as a structured value e.g. `pipeline:pipeline_id` so if a pipeline is renamed the redirect still works, and if a pipeline is deleted the preference gracefully falls back to Dashboard.
+
+---
+
+## Change 2: Login Redirect Logic
+
+After successful authentication, read the user's `defaultLandingPage` preference and redirect accordingly:
+
+- `null` or `"dashboard"` → `/dashboard`
+- `"patients"` → `/patients`
+- `"appointments"` → `/appointments`
+- `"pipeline:[id]"` → `/pipeline` with that pipeline pre-selected. If the pipeline no longer exists, fall back to `/dashboard` and clear the stored preference.
+
+### Fallback
+If anything goes wrong reading the preference, always fall back to Dashboard silently — never show an error for a preference redirect failure.
+
+---
+
+## Delivery Checklist
+- [ ] "Default landing page" dropdown appears in user account/preferences settings
+- [ ] Dropdown correctly lists Dashboard, all active pipelines, Patients, Appointments
+- [ ] Default value is Dashboard for all users
+- [ ] Saving preference persists to user record
+- [ ] Login redirect reads preference and navigates to correct page
+- [ ] Pipeline preference uses pipeline ID so renames don't break it
+- [ ] Deleted pipeline preference gracefully falls back to Dashboard
+- [ ] No TypeScript errors, no console errors
+- [ ] Existing login flow completely unaffected for users with no preference set
+
+## END OF PROMPT

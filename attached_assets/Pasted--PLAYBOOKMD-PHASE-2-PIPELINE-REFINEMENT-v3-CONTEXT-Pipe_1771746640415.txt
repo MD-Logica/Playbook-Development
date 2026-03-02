@@ -1,0 +1,211 @@
+# PLAYBOOKMD — PHASE 2 PIPELINE REFINEMENT v3
+
+## CONTEXT
+
+Pipeline board is working well. Fonts, depth layers, and card uniformity are all improved. This is a focused third refinement pass covering six specific issues. Do not change anything not listed here.
+
+---
+
+## FIX 1: REMOVE ALL "+ ADD CARD" COLUMN FOOTER BUTTONS
+
+Remove the "+ Add card" button from the bottom of every column entirely. Delete the column footer component.
+
+A lead is created via the "+ Add Lead" button in the top right of the control bar — not from within a specific column. The stage is selected inside the new lead modal.
+
+After removing the footers, columns should end cleanly after the last card with 8px bottom padding. No footer, no button, no empty space component.
+
+---
+
+## FIX 2: ROTTING BADGE — MERGE WITH STATUS BADGE
+
+The floating rotting badge (red circle top-right of card) is invisible against the white card background. Remove it entirely and replace with a merged approach.
+
+### New approach: rotting modifies the status badge
+
+When an opportunity is rotting, the existing status badge on the card changes to show rotting information:
+
+**If the card already has a status badge (Past Due, New, Confirmed, etc.):**
+- Keep the existing badge text
+- Add "• Xd" after it in the same pill
+- Example: "Past Due • 6d" or "New • 14d"
+- The pill background becomes `#FEE2E2` (red tint)
+- The pill text becomes `#991B1B` (dark red)
+- The pill gets a `1px solid #FECACA` border
+
+**If the card has no status badge:**
+- Show a new badge: "Xd overdue"
+- Same red tint styling as above
+
+**Rotting threshold indicator on the badge:**
+- 1–6 days overdue: amber styling (`#FEF3C7` bg, `#92400E` text, `#FDE68A` border) — "warming up"
+- 7–13 days overdue: red styling (`#FEE2E2` bg, `#991B1B` text, `#FECACA` border) — "rotting"
+- 14+ days overdue: deep red styling (`#FEE2E2` bg, `#7F1D1D` text, bold weight, `#FECACA` border) — "critical"
+
+Remove all code related to the old floating circular badge. Remove `position: absolute` badge entirely.
+
+### Card red tint when rotting:
+Keep the subtle card background tint for 7+ day rotting cards:
+- Card background: `rgba(239, 68, 68, 0.04)` instead of pure white
+- Card border: `1px solid rgba(239, 68, 68, 0.2)`
+
+---
+
+## FIX 3: VALUE STRIP — PILL-SHAPED WITH COLOR CODING
+
+Replace the current plain text value strip with colored pill badges spread across the full available width of the control bar.
+
+### Layout:
+The four metrics should be spaced across the full width between the pipeline title (left) and the Filter/Sort/Add Lead buttons (right). Use `justify-content: space-evenly` or fixed spacing so they don't cluster in the center.
+
+### Each metric as a pill:
+
+**Total Value:**
+- Background: `#D1FAE5` (emerald tint)
+- Text: `#065F46` (dark emerald)
+- Border: `1px solid #A7F3D0`
+- Label: "TOTAL VALUE" 10px Geist Sans uppercase
+- Value: Geist Mono 14px weight 700
+- Example: `💰 $5,950`
+
+**Velocity:**
+- Background: `#EFF6FF` (blue tint)  
+- Text: `#1E40AF` (dark blue)
+- Border: `1px solid #BFDBFE`
+- Label: "VELOCITY"
+- Value: "8d avg" in Geist Mono
+- No emoji
+
+**Win Rate:**
+- Dynamic color based on value:
+  - ≥ 50%: emerald tint (same as Total Value)
+  - 30–49%: amber tint (`#FEF3C7` bg, `#92400E` text)
+  - < 30%: red tint
+- Label: "WIN RATE"
+- Value: "100%" in Geist Mono
+
+**At Risk:**
+- Always red tint when value > 0: `#FEE2E2` bg, `#991B1B` text, `#FECACA` border
+- When $0 at risk: emerald tint with "✓ $0" 
+- Label: "AT RISK"
+- Value: "$3,900" in Geist Mono
+
+### Pill styling (shared):
+- Border-radius: 20px (fully rounded pill)
+- Padding: 6px 14px
+- Display: flex, flex-direction column, align-items center
+- Gap between label and value: 1px
+- Min-width: 100px
+
+---
+
+## FIX 4: COLUMN SCROLLBAR — REPLACE WITH FADE GRADIENT
+
+Remove the visible browser scrollbar from column lanes. Replace with a subtle fade-out gradient at the bottom of columns that have more cards than visible.
+
+### Implementation:
+
+The column lane container:
+```css
+.column-lane {
+  overflow-y: auto;
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE/Edge */
+}
+
+.column-lane::-webkit-scrollbar {
+  display: none;                /* Chrome/Safari */
+}
+```
+
+Add a fade gradient overlay at the bottom of each column when scrollable:
+- A pseudo-element or absolutely positioned div
+- Background: `linear-gradient(to bottom, transparent, var(--column-bg))`
+- Height: 40px
+- Position: absolute, bottom of column, pointer-events none
+- Only visible when the column has overflow (use JS to detect `scrollHeight > clientHeight`)
+
+This creates a modern "content continues below" affordance without a visible scrollbar.
+
+---
+
+## FIX 5: CONTROL BAR LAYOUT — FULL WIDTH DISTRIBUTION
+
+The control bar (area above the board with pipeline title, value strip, filter buttons) should use the full width of the content area with intentional distribution.
+
+### Layout:
+```
+[Non-Surgical Pipeline ▾]    [pill]  [pill]  [pill]  [pill]    [Filter ▾]  [↑↓ Sort]  [+ Add Lead]
+LEFT                         CENTER — spread across available space          RIGHT
+```
+
+Use `display: flex`, `align-items: center`, `justify-content: space-between` on the control bar container.
+
+Left: Pipeline title switcher
+Center: The four metric pills in a flex row with `gap: 12px`, centered in available space using `flex: 1` with `justify-content: center`
+Right: Filter, Sort, Add Lead buttons in a flex row with `gap: 8px`
+
+The pills should never cluster in the middle with empty space — they should feel like they belong to the full width of the bar.
+
+Control bar height: 56px
+Control bar background: white
+Control bar border-bottom: `1px solid var(--border-default)`
+Control bar padding: 0 24px
+
+---
+
+## FIX 6: FILTER BUTTON — ENSURE IT WORKS
+
+Verify the Filter button from the previous prompt is actually working. If the filter panel did not get built or is broken:
+
+Rebuild a minimal working version:
+
+- Filter button: outlined, `SlidersHorizontal` icon from lucide + "Filter" text
+- Shows "Filter (N)" when N filters active, with emerald tint background
+- Clicking opens a dropdown panel below the button
+
+Panel contains only the Quick Filters section for now (full custom filters can come later):
+
+**Quick Filter pills** (click to toggle, multi-selectable):
+- "My Leads" — assigned to current user
+- "Rotting Only" — isRotting = true
+- "High Value" — estimatedValue > 5000  
+- "Unassigned" — no assignedTo
+
+Active pill: `var(--brand-primary)` background, white text
+Inactive: `var(--bg-tertiary)` background, `--text-secondary` text
+
+Filter logic: client-side, filter the rendered opportunity arrays. Update column count badges when filtered.
+
+"Clear Filters" link at bottom of panel.
+
+---
+
+## WHAT NOT TO CHANGE
+
+- Do not modify drag-and-drop logic
+- Do not modify API routes or data fetching
+- Do not change column structure or stage names
+- Do not modify Pipeline Settings
+- Do not modify the sidebar, top bar, or dashboard
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] "+ Add card" buttons removed from all column footers
+- [ ] Column footers removed entirely — columns end cleanly after last card
+- [ ] Floating circular rotting badges removed entirely
+- [ ] Rotting state merged into status badge: "Past Due • 6d" format
+- [ ] Three rotting severity tiers: amber (1–6d), red (7–13d), deep red (14d+)
+- [ ] Rotting cards have subtle red background tint and border
+- [ ] Four value strip metrics are pill-shaped with color coding
+- [ ] Total Value: emerald pill
+- [ ] At Risk: red pill when > 0, emerald when $0
+- [ ] Pills spread across full control bar width — no center clustering
+- [ ] Column scrollbars hidden (scrollbar-width: none)
+- [ ] Fade gradient at bottom of scrollable columns
+- [ ] Control bar uses full width with left/center/right distribution
+- [ ] Filter button opens quick filter panel
+- [ ] Quick filter pills work client-side
+- [ ] No TypeScript errors
+- [ ] No console errors

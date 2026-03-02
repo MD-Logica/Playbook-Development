@@ -1,0 +1,320 @@
+# PLAYBOOKMD — PHASE 1B: DASHBOARD HOME
+
+---
+
+## CONTEXT
+
+Phase 1A is complete. The app shell, dark sidebar, navigation, top bar, and brand design system are all in place. The color system, typography, and CSS variables are defined in `globals.css`.
+
+This is Phase 1B. You are building the **real dashboard home page** — replacing the placeholder stat cards with a genuinely useful, time-aware morning view for a front desk manager or patient coordinator. This is the first screen they see every day. It must answer one question instantly: "What does today look like and what needs my attention?"
+
+---
+
+## LAYOUT ARCHITECTURE
+
+Three distinct zones, stacked vertically:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  PAGE HEADER — greeting + date                      │
+├──────────┬──────────┬──────────┬────────────────────┤
+│  KPI 1   │  KPI 2   │  KPI 3   │  KPI 4             │  ← KPI STRIP (4 cols)
+├──────────┴──────────┴──────────┴────────────────────┤
+│                              │                       │
+│   TODAY'S SCHEDULE           │   ATTENTION NEEDED    │
+│   (wider — ~60%)             │   (narrower — ~40%)   │
+│                              │                       │
+└──────────────────────────────┴───────────────────────┘
+```
+
+The two-column section below the KPI strip is the main workspace. Schedule is dominant. Alerts panel is supporting.
+
+---
+
+## SECTION 1: PAGE HEADER
+
+- Greeting: "Good morning, [firstName]." — pull from Clerk `useUser()`
+  - Adjust greeting based on time: "Good morning" before 12pm, "Good afternoon" 12–5pm, "Good evening" after 5pm
+- Subtext: today's full date — "Friday, February 21, 2026" — formatted cleanly, 14px, `--text-muted`
+- No description text below — let the data speak
+- Margin below header before KPI strip: 24px
+
+---
+
+## SECTION 2: KPI STRIP
+
+Four cards in a 4-column grid. 16px gap. These are **today-specific and contextual** — not database totals.
+
+Each card:
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border radius: 10px
+- Padding: 18px 20px
+- Hover: very subtle lift — `box-shadow: 0 4px 12px rgba(0,0,0,0.08)`, translate Y -1px, 200ms ease transition
+- Cursor: default (not clickable yet — future phases will link these)
+
+**Card 1: Today's Appointments**
+- Label: "TODAY'S APPOINTMENTS" — 11px, uppercase, letter-spacing 0.05em, `--text-muted`
+- Value: count of appointments where `startTime` is today (any status) — query via API route
+- Sub-label: "[X] confirmed · [Y] pending" — 12px, `--text-muted`
+- Icon: `CalendarDays` from lucide, in an emerald tinted chip
+
+**Card 2: Confirmed**
+- Label: "CONFIRMED TODAY"
+- Value: count of today's appointments with status CONFIRMED
+- Sub-label: "On schedule"
+- Icon: `CheckCircle2`, color `--success`
+
+**Card 3: Needs Attention**
+- Label: "NEEDS ATTENTION"
+- Value: count of today's appointments with status PENDING (not yet confirmed)
+- Sub-label: "[X] unconfirmed · [Y] on hold" — calculate from seed data
+- Icon: `AlertCircle`, color `--warning`
+- If value > 0: card gets a very subtle left border `3px solid var(--warning)` to draw the eye
+
+**Card 4: Pipeline Alerts**
+- Label: "PIPELINE ALERTS"
+- Value: count of opportunities where `lastActivityAt` is more than 7 days ago (rotting)
+- Sub-label: "Leads needing follow-up"
+- Icon: `TrendingDown`, color `--danger`
+- If value > 0: card gets subtle left border `3px solid var(--danger)`
+
+**Animation on load:**
+Cards animate in with a staggered fade-up on page load:
+- Each card: opacity 0 → 1, translateY 8px → 0
+- Duration: 300ms ease-out
+- Stagger: 60ms between each card (card 1 at 0ms, card 2 at 60ms, card 3 at 120ms, card 4 at 180ms)
+- Use CSS keyframes or Framer Motion if already installed — keep it subtle, not dramatic
+
+---
+
+## SECTION 3A: TODAY'S SCHEDULE (left column, ~60% width)
+
+### Section Header
+- Title: "Today's Schedule" — 15px, weight 600, `--text-primary`
+- Right side: today's date as a subtle badge — "Feb 21" in a gray pill
+- Below header: a subtle `1px solid var(--border-default)` divider
+
+### Appointment List
+Query appointments where `startTime` is today, ordered by `startTime` ascending.
+
+If no appointments today, show an intentional empty state:
+- Centered in the card
+- `CalendarDays` icon, 28px, in a light gray circle
+- "Nothing scheduled today." — 14px, weight 500, `--text-primary`
+- "Enjoy the quiet." — 13px, `--text-muted` — on-brand, human
+
+For each appointment, show a row:
+
+```
+[TIME]    [PATIENT NAME]          [TYPE BADGE]    [PROVIDER]    [STATUS CHIP]
+9:00 AM   Sofia Martinez          Consult         Dr. Reyes     ● Confirmed
+```
+
+**Row anatomy:**
+- Height: 52px
+- Padding: 0 16px
+- Hover background: `var(--bg-secondary)` with 150ms transition
+- Bottom border: `1px solid var(--border-default)` on all but last row
+- Border radius on first/last row to match card: 8px top/bottom
+
+**Time column:**
+- 13px, weight 600, `--text-primary`, monospace (Geist Mono)
+- Width: 64px, fixed
+- AM/PM: 11px, `--text-muted`
+
+**Patient name:**
+- 14px, weight 500, `--text-primary`
+- Flex-grow — takes remaining space
+
+**Appointment type badge:**
+- Small pill: 11px, weight 500, uppercase, letter-spacing 0.04em
+- Rounded: 4px
+- Color by type:
+  - CONSULT: emerald tint background (`--brand-light`), emerald text (`--brand-secondary`)
+  - TREATMENT: blue tint (`#EFF6FF`), blue text (`#3B82F6`)
+  - SURGERY: purple tint (`#F5F3FF`), purple text (`#7C3AED`)
+  - FOLLOW_UP: gray tint (`var(--bg-tertiary)`), muted text
+  - POST_OP: orange tint (`#FFF7ED`), orange text (`#EA580C`)
+  - OTHER: gray
+
+**Provider:**
+- 13px, `--text-muted`
+- Show first name + last initial: "Dr. Reyes" or "J. Wu"
+- Width: 80px
+
+**Status chip:**
+- Small colored dot (6px circle) + status text
+- CONFIRMED: emerald dot, "Confirmed"
+- PENDING: amber dot, "Pending"
+- COMPLETED: gray dot, "Completed"
+- CANCELLED: red dot, "Cancelled"
+- NO_SHOW: red dot, "No Show"
+- HOLD: blue dot, "Hold"
+- 12px, weight 500
+
+### Card container
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border radius: 10px
+- Overflow: hidden
+- No internal padding on the list — rows touch edge to edge for a clean table feel
+- Section header has 16px padding
+
+---
+
+## SECTION 3B: ATTENTION NEEDED (right column, ~40% width)
+
+Two stacked sub-sections in this column with 16px gap between them.
+
+### Sub-section 1: Rotting Pipeline Leads
+
+**Header:** "Leads Needing Follow-Up"
+**Sub-header:** "No activity in 7+ days"
+
+Query opportunities where `lastActivityAt` < 7 days ago, ordered by `lastActivityAt` ascending (oldest first). Limit to 5.
+
+For each rotting opportunity, show:
+
+```
+[PATIENT NAME]              [DAYS SINCE CONTACT]
+[PIPELINE STAGE]            [ASSIGNED TO]
+```
+
+**Row anatomy:**
+- Padding: 12px 16px
+- Hover: `var(--bg-secondary)`
+- Bottom border between rows
+
+**Patient name:** 13px, weight 600, `--text-primary`
+
+**Days since contact:**
+- Calculated from `lastActivityAt`
+- 7–13 days: amber text (`--warning`), "8d ago"
+- 14+ days: red text (`--danger`), "15d ago" — also show a small fire emoji 🔥 to the left at 14+ days
+- 12px, weight 600, monospace
+
+**Pipeline stage:** 12px, `--text-muted`
+
+**Assigned to:** 12px, `--text-subtle` — first name only
+
+Empty state: "Pipeline is healthy. No stalled leads." with a small `✓` in emerald.
+
+### Sub-section 2: Quotes Awaiting Response
+
+**Header:** "Quotes Awaiting Response"
+**Sub-header:** "Sent but not yet accepted"
+
+Query quotes where status = SENT or VIEWED, ordered by `sentAt` ascending. Limit to 4.
+
+For each quote:
+
+```
+[PATIENT NAME]              [QUOTE VALUE]
+[SENT X DAYS AGO]           [VIEWED or NOT OPENED]
+```
+
+**Quote value:** 13px, weight 700, `--text-primary` — formatted as currency "$12,400"
+
+**Sent date:** 12px, `--text-muted`, "Sent 3 days ago"
+
+**Viewed status:**
+- If `viewedAt` is set: small eye icon + "Viewed" in emerald — they opened it
+- If not viewed: "Not opened" in muted gray — more urgency
+
+Empty state: "No quotes pending. Time to send some." — on-brand copy.
+
+### Card containers for both sub-sections
+- Background: white
+- Border: `1px solid var(--border-default)`
+- Border radius: 10px
+- Overflow: hidden
+- Section header: 16px padding, 13px weight 600 `--text-primary`, sub-header 11px `--text-muted`
+- Divider below header
+
+---
+
+## API ROUTES REQUIRED
+
+Create the following API routes to power the dashboard. All routes must scope queries to `practiceId` (use `prisma.practice.findFirst()` for now as the practice resolver):
+
+**`GET /api/dashboard/kpis`**
+Returns:
+```json
+{
+  "todayTotal": 5,
+  "todayConfirmed": 3,
+  "todayPending": 2,
+  "rottingLeads": 4
+}
+```
+
+**`GET /api/dashboard/today-appointments`**
+Returns today's appointments with patient name, provider name, type, status, startTime. Ordered by startTime.
+
+**`GET /api/dashboard/rotting-leads`**
+Returns opportunities where lastActivityAt < 7 days ago. Include patient name, stage name, assigned user first name, lastActivityAt. Limit 5.
+
+**`GET /api/dashboard/pending-quotes`**
+Returns quotes where status IN [SENT, VIEWED]. Include patient name, total, sentAt, viewedAt. Limit 4. Ordered by sentAt ascending.
+
+Use TanStack Query (`useQuery`) on the client to fetch all four endpoints. Show skeleton loaders while loading — not spinners. Use a simple pulse animation on placeholder rectangles that match the shape of the content they're replacing.
+
+---
+
+## ANIMATIONS & MICRO-INTERACTIONS
+
+**Page load sequence:**
+1. Header fades in first (0ms delay, 250ms)
+2. KPI cards stagger in (starting at 100ms, 60ms apart)
+3. Both columns fade up together (300ms delay, 300ms)
+
+**Row hover states:** All list rows get `background-color` transition on hover — smooth 150ms, no jumping
+
+**Number counting animation on KPI cards:**
+When the data loads, the numbers count up from 0 to their final value over 600ms with an ease-out curve. Keep it subtle — this should feel satisfying, not gimmicky.
+
+**Status chip pulse:**
+Any PENDING appointment status chip gets a very subtle pulse animation — the amber dot softly pulses (opacity 1 → 0.5 → 1) on a 2s loop. This draws attention to unconfirmed appointments without being aggressive.
+
+**Days-since badge:**
+For leads that are 14+ days old (danger/red), the "🔥 15d ago" text has a very subtle shake animation on hover — just 2–3px horizontal, 200ms — like a gentle nudge to act.
+
+---
+
+## DATA NOTES
+
+The seed data has 33 appointments spread across 60 days, so today likely has 0–2 real appointments. That's fine — the empty state should display cleanly and look intentional, not broken. The rotting leads (opportunities with old `lastActivityAt`) will show since we specifically seeded those values to be varied.
+
+---
+
+## WHAT NOT TO BUILD
+
+- Do not add any click-through navigation on dashboard items yet (future phases)
+- Do not add filters or date pickers
+- Do not modify the Prisma schema
+- Do not change the sidebar or top bar
+- Do not add charts or graphs — Phase 1C if needed
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] KPI strip shows real today-specific data from database (not static counts)
+- [ ] KPI cards animate in with stagger on page load
+- [ ] Numbers count up from 0 on load
+- [ ] PENDING and danger KPI cards show colored left border
+- [ ] Today's schedule shows appointments from database ordered by time
+- [ ] Schedule rows show time, patient name, type badge, provider, status chip correctly
+- [ ] Status chips have correct colors and the pending dot pulses
+- [ ] Empty state for schedule looks intentional and on-brand
+- [ ] Rotting leads panel shows leads with 7+ days inactivity, oldest first
+- [ ] 14+ day leads show 🔥 and danger red styling
+- [ ] Pending quotes panel shows SENT/VIEWED quotes with viewed status indicator
+- [ ] Skeleton loaders appear while data is fetching
+- [ ] All four API routes created and working
+- [ ] TanStack Query used for all data fetching — no useEffect + fetch patterns
+- [ ] Two-column layout is stable and doesn't collapse or wrap unexpectedly
+- [ ] Page feels alive, intentional, and genuinely useful — not a template
+- [ ] No TypeScript errors
+- [ ] No console errors

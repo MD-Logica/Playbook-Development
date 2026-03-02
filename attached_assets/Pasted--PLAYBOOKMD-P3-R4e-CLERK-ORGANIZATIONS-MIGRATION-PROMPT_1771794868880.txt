@@ -1,0 +1,128 @@
+# PLAYBOOKMD — P3-R4e: CLERK ORGANIZATIONS MIGRATION
+
+## PROMPT REFERENCE
+Code: P3-R4e | Single job: migrate from user-based to organization-based auth in Clerk
+Do not change UI. Run on MEDIUM AUTONOMY — this touches auth, be careful.
+
+---
+
+## CONTEXT
+
+Currently Clerk has users but no organizations. The correct architecture is:
+- **Clerk Organization** = the practice
+- **Clerk Users** = staff belonging to that practice
+- **Clerk orgId** = the tenant identifier used throughout the app
+
+Doing this now prevents a much larger migration later when more components depend on the current practiceId resolution pattern.
+
+---
+
+## STEP 1: ENABLE ORGANIZATIONS IN CLERK DASHBOARD
+
+This must be done manually in the Clerk Dashboard before running code changes:
+1. Go to Clerk Dashboard → Configure → Organizations
+2. Enable organizations
+3. Set "Require organization membership" if appropriate
+4. Create one organization for the test practice (e.g., "Test Practice")
+5. Add the test user as a member of that organization
+6. Note the Organization ID (starts with `org_`)
+
+Add a comment in `README.md` or `.env.example` documenting this manual step.
+
+---
+
+## STEP 2: ADD clerkOrgId TO PRACTICE MODEL
+
+```prisma
+model Practice {
+  // ... existing fields ...
+  clerkOrgId String? @unique
+}
+```
+
+Run migration.
+
+Update the seed script to set `clerkOrgId` on the test practice to match the Clerk organization ID from Step 1. Use an environment variable:
+```
+CLERK_TEST_ORG_ID=org_xxxxxx
+```
+
+---
+
+## STEP 3: CREATE getPracticeFromOrg UTILITY
+
+Create `/lib/getPracticeFromOrg.ts`:
+```typescript
+import { prisma } from './prisma'
+
+export async function getPracticeFromOrg(orgId: string) {
+  const practice = await prisma.practice.findUnique({
+    where: { clerkOrgId: orgId }
+  })
+  if (!practice) throw new Error(`No practice found for org ${orgId}`)
+  return practice
+}
+```
+
+---
+
+## STEP 4: UPDATE MIDDLEWARE
+
+In `middleware.ts`, resolve practiceId from the Clerk organization:
+```typescript
+import { auth } from '@clerk/nextjs/server'
+
+// In the middleware or layout:
+const { userId, orgId } = auth()
+if (!orgId) {
+  // redirect to org selection or show error
+}
+// Use orgId to look up practice via getPracticeFromOrg
+```
+
+---
+
+## STEP 5: UPDATE API ROUTES
+
+For every API route that currently resolves practiceId from the database via userId, update to use orgId from Clerk:
+
+```typescript
+// Before:
+const practiceId = await getPracticeIdFromUser(userId)
+
+// After:
+const { orgId } = auth()
+if (!orgId) return NextResponse.json({ error: 'No organization' }, { status: 401 })
+const practice = await getPracticeFromOrg(orgId)
+const practiceId = practice.id
+```
+
+Apply this pattern to all routes under `/api/`.
+
+---
+
+## STEP 6: FALLBACK / BACKWARD COMPATIBILITY
+
+During the migration, keep the old practiceId resolution as a fallback:
+```typescript
+const { orgId } = auth()
+const practiceId = orgId
+  ? (await getPracticeFromOrg(orgId)).id
+  : await getPracticeIdFromUser(userId) // legacy fallback
+```
+
+This ensures nothing breaks immediately if an existing session doesn't have an org yet.
+
+---
+
+## DELIVERY CHECKLIST
+
+- [ ] README documents the manual Clerk Dashboard step
+- [ ] Practice model has clerkOrgId field, migrated
+- [ ] CLERK_TEST_ORG_ID env variable used in seed script
+- [ ] getPracticeFromOrg utility created
+- [ ] Middleware reads orgId from Clerk
+- [ ] All API routes updated to use orgId pattern
+- [ ] Fallback to legacy resolution in place
+- [ ] App loads correct practice after logging in with org-linked user
+- [ ] No TypeScript errors, no console errors

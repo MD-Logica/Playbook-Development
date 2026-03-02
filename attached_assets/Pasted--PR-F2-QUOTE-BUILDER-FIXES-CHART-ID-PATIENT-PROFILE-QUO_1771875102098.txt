@@ -1,0 +1,160 @@
+# PR-F2 — QUOTE BUILDER FIXES + CHART ID + PATIENT PROFILE QUOTES
+
+## Prompt Reference
+Code: PR-F2 | Fix patient search in quote builder, add quotes to patient profile, add PDF preview/download, remove chart ID from UI, store as backend-only identifier
+Run on MEDIUM AUTONOMY — touches patient data model, quote builder, and patient profile Financial tab.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PP-F3 and PR-F1 being already implemented. Targeted fixes only — do not rewrite or restructure anything working correctly.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- When complete: verify patient search works in quote builder, quotes appear on patient Financial tab, PDF preview and download work, chart ID is stored but never displayed anywhere in UI. No TypeScript or console errors.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Fix 1: Patient Chart ID — Backend Only
+
+### Purpose
+Every patient needs a stable, permanent, random unique identifier for use in audit logs, HIPAA activity trails, and internal database integrity. This ID is never shown in the UI under any circumstances.
+
+### Format
+- 6 characters, uppercase alphanumeric
+- Exclude ambiguous characters: 0, O, 1, I, L
+- Character set: A-Z (excluding I, L, O) + 2-9
+- Examples: X7K2M9, B4R8WQ, F3N6YT
+- Unique within the organization (practiceId scoped)
+- Generated once at patient creation, never changes, never regenerated
+
+### Database
+Add `chartId` field to the Patient model:
+```prisma
+model Patient {
+  // ... existing fields ...
+  chartId   String   @unique
+}
+```
+Generate chartId for all existing patients on migration. Generate automatically for all new patients on creation.
+
+### Usage
+- Store in `metadata` of all activity log entries related to this patient: `{ chartId, patientId, ... }`
+- Use as the stable patient reference in any future HIPAA audit logging
+- Never expose in API responses that render to the UI unless specifically needed for internal admin tooling
+
+### UI Change
+Remove the patient identifier text that currently displays below the patient name (e.g., "Patient #pat_davi"). The patient profile header should show only the patient's name, avatar, status badge, and tags. Clean and uncluttered — no ID string visible anywhere.
+
+---
+
+## Fix 2: Patient Search in Quote Builder
+
+### Problem
+The "Search patients..." input in the quote builder renders correctly but does not actually query patients when text is typed.
+
+### Fix
+Wire the patient search input to query the patients API as the user types:
+- Debounce input by 300ms before querying
+- Search by: first name, last name, full name, email, phone number
+- Return up to 8 results in a dropdown below the input
+- Each result shows: patient avatar (initials circle) | full name | email or phone as secondary detail
+- Clicking a result selects the patient, locks the field, and triggers the deal dropdown to populate with that patient's open deals
+- If no results found: show "No patients found" state
+- If search returns results but none match: same "No patients found" state
+- Minimum 2 characters before search triggers
+
+### Deal Dropdown After Patient Selection
+- Queries open (non-closed) deals for the selected patient
+- Each option shows: deal title + current stage name
+- If only one open deal: auto-select it
+- If no open deals: show inline message "No open deals for this patient — create a deal first" with a "+ Add Deal" link that opens the Add Deal form
+
+---
+
+## Fix 3: Quotes on Patient Profile Financial Tab
+
+### Current State
+The Financial tab exists with KPI cards (Total Revenue, Open Balance, Credits, Open Quotes) but has no way to create a new quote or view existing quotes.
+
+### Add: New Quote Button
+Add a **"+ New Quote"** button to the Financial tab, positioned in the top right of the quotes section. Clicking it opens the quote builder with the patient pre-filled and locked — no need to search for the patient.
+
+### Add: Quotes List Section
+Below the existing KPI cards, add a "Quotes" section on the Financial tab showing all quotes associated with this patient across all their deals.
+
+Each quote row shows:
+- Quote number (e.g., Q-2026-0001)
+- Linked deal name
+- Status badge (Draft, Sent, Accepted, Declined, Converted, Expired)
+- Total amount
+- Expiration date (with subtle red color if expired or expiring within 7 days)
+- Created date
+- Actions: View (opens quote builder), Download PDF
+
+Quotes sorted by created date descending (newest first).
+
+Empty state: "No quotes yet — create the first quote for this patient."
+
+---
+
+## Fix 4: Preview and Download PDF in Quote Builder
+
+### Problem
+The quote builder header only shows "Save Draft" and "Mark as Sent" — no way to preview or download the PDF.
+
+### Add to Quote Builder Header Actions
+Add two additional action buttons in the header alongside the existing ones:
+
+**Preview** (secondary button):
+- Opens the patient-facing quote output in a full-screen modal or new tab
+- Shows exactly what the patient will see
+- Modal has a "Download PDF" button and a "Close" button
+
+**Download PDF** (secondary button):
+- Directly triggers PDF generation and download without opening preview first
+- Button shows a loading state while PDF generates
+- Downloaded file named: `Quote-[QuoteNumber]-[PatientLastName].pdf` (e.g., `Quote-Q-2026-0001-Chen.pdf`)
+
+### PDF Generation Requirements
+- Must use the editorial design from PR-F1 (Playfair Display/Cormorant headers, Inter/DM Sans body)
+- Must pull practice branding (logo, primary color, secondary color) from Practice settings
+- Falls back to default styling if branding not configured
+- Bundle components hidden by default
+- Provider attribution not shown
+- Coordinator contact pill at bottom
+- Quote expiration date in footer
+
+---
+
+## Delivery Checklist
+- [ ] chartId field added to Patient model and migrated
+- [ ] chartId generated for all existing patients on migration
+- [ ] chartId auto-generated for all new patients on creation
+- [ ] chartId used in activity log metadata
+- [ ] Patient identifier text (pat_davi style) removed from patient profile header
+- [ ] Patient profile header shows only name, avatar, status badge, tags
+- [ ] Patient search in quote builder queries as user types (300ms debounce)
+- [ ] Search works by name, email, and phone
+- [ ] Search results dropdown shows avatar, name, secondary detail
+- [ ] Selecting patient locks field and populates deal dropdown
+- [ ] Deal dropdown shows open deals with title and stage
+- [ ] Auto-selects deal if only one open deal exists
+- [ ] No open deals state handled with Add Deal link
+- [ ] "+ New Quote" button on patient profile Financial tab
+- [ ] Opens quote builder with patient pre-filled and locked
+- [ ] Quotes list section shows on Financial tab
+- [ ] Quotes list shows correct columns and data
+- [ ] Expiring/expired quotes highlighted in red
+- [ ] Empty state shown when no quotes exist
+- [ ] Preview button opens patient-facing output in modal
+- [ ] Download PDF button triggers PDF generation and download
+- [ ] PDF filename format correct
+- [ ] PDF uses editorial design from PR-F1
+- [ ] PDF pulls practice branding
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

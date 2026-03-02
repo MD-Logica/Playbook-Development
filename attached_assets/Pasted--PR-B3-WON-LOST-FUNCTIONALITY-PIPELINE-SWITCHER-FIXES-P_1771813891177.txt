@@ -1,0 +1,133 @@
+# PR-B3 — WON/LOST FUNCTIONALITY + PIPELINE SWITCHER FIXES
+
+## Prompt Reference
+Code: PR-B3 | Fix prompt — Won/Lost columns not appearing, Won/Lost actions not moving opportunities correctly, pipeline switcher missing from opportunity panel
+Run on MEDIUM AUTONOMY — touches pipeline board, opportunity panel header, and opportunity state logic.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated, then wait for further instructions.
+
+## Prompt Order & Dependencies
+Depends on PR-B1 and PR-B2 being already implemented. This prompt fixes incomplete or broken behavior from PR-B2 and adds the pipeline switcher missing from PR-B1. Do not rewrite or restructure anything that is already working correctly.
+
+## Replit Instructions
+- Do NOT delete, overwrite, or refactor any existing functionality unrelated to this task.
+- This is a targeted fix prompt — three specific issues need resolving. Only touch what is necessary to fix them.
+- When complete: verify Won/Lost columns appear collapsed on the pipeline board, marking an opportunity as Won or Lost correctly moves it out of its active column and into the appropriate closed column, and the pipeline switcher dropdown works in the opportunity panel header.
+- Do not mark complete until all checklist items are verified.
+
+---
+
+## Context
+PR-B2 added Won/Lost buttons to the stage dropdown and the schema changes for closedStatus, lostReason, lostNote, and closedAt. However three things are broken or missing:
+1. Won/Lost columns do not appear on the pipeline board
+2. Marking an opportunity as Won or Lost does not move it — it stays in its original active column
+3. The pipeline label in the opportunity panel header ("Surgical") is static text — it needs to be a dropdown to switch pipelines
+
+---
+
+## Fix 1: Won/Lost Columns on Pipeline Board
+
+### Problem
+The collapsible Won and Lost columns are not rendering on the pipeline board at all.
+
+### Expected Behavior
+Two columns must appear at the far right of the pipeline board, after all active stage columns.
+
+### Collapsed State (default on page load)
+- Slim vertical column (~48px wide)
+- Won column: soft green tint background
+- Lost column: soft red tint background
+- Vertical label text: "WON" or "LOST"
+- Count badge showing number of opportunities with that closedStatus
+- A chevron icon (→) indicating it is expandable
+- Unobtrusive — should not draw attention away from active columns
+
+### Expanded State (on click)
+- Full width matching active stage columns
+- Won: green column header treatment
+- Lost: red column header treatment
+- Count shown in header
+- Collapse chevron (←) to close back to slim state
+- Opportunity cards displayed within the column
+- Each card has a "Reopen" option (small button or context menu) that clears closedStatus and returns the opportunity to its previous active stage
+
+### Implementation Notes
+- The board must query opportunities where closedStatus = WON or LOST separately from active opportunities
+- Active pipeline columns must only show opportunities where closedStatus IS NULL
+- Collapsed/expanded state persists per user session (localStorage or component state)
+- Both columns must appear regardless of whether they contain any opportunities (show "No closed leads yet" empty state when count is 0)
+
+---
+
+## Fix 2: Won/Lost Actions Must Move Opportunities
+
+### Problem
+When an opportunity is marked Won or Lost via the stage dropdown buttons, the modal/confirmation works correctly but the opportunity remains visible in its active pipeline column instead of moving to the closed columns.
+
+### Expected Behavior
+- **Won flow:** After confirmation, opportunity immediately disappears from its active pipeline column and appears in the Won column (collapsed or expanded)
+- **Lost flow:** After lost reason is submitted, opportunity immediately disappears from its active pipeline column and appears in the Lost column
+
+### Implementation Notes
+- The API routes `PATCH /api/opportunities/:id/won` and `PATCH /api/opportunities/:id/lost` must correctly set closedStatus on the record
+- The pipeline board must re-fetch or update its local state after a Won/Lost action to reflect the change immediately without requiring a page refresh
+- The Won/Lost column count badges must update in real time after the action
+
+### Reopen Behavior
+- Clicking "Reopen" on a card in a closed column clears closedStatus, lostReason, lostNote, and closedAt
+- The opportunity returns to whichever active stage it was in before being closed (use the existing stage field — do not clear it when closing)
+- The opportunity reappears in the correct active column immediately
+
+---
+
+## Fix 3: Pipeline Switcher in Opportunity Panel Header
+
+### Problem
+The pipeline label (e.g., "Surgical") in the opportunity panel header beneath the opportunity title is static text. It needs to be an interactive dropdown to move the lead between pipelines.
+
+### Location
+In the opportunity panel header, the line that currently reads:
+`● [Stage Badge]   [Pipeline Name]`
+
+The pipeline name should become a dropdown.
+
+### Behavior
+- Clicking the pipeline name opens a dropdown listing all available pipelines for the practice
+- The current pipeline is shown with a checkmark or highlighted
+- Selecting a different pipeline immediately moves the opportunity to that pipeline
+- No confirmation dialog needed — this is a straightforward immediate action
+- After switching, the stage should remain as-is if that stage exists in the new pipeline, or default to the first stage of the new pipeline if it does not
+
+### API
+- `PATCH /api/opportunities/:id/pipeline` — accepts `{ pipelineId: string }`, updates the opportunity's pipeline, handles stage compatibility
+
+### Visual Design
+- The dropdown should feel lightweight — similar to how the stage badge dropdown works
+- Should not look like a heavy form select — keep it inline and minimal
+- A small chevron next to the pipeline name indicates it is interactive
+
+---
+
+## Delivery Checklist
+- [ ] Won column appears at far right of pipeline board, collapsed by default
+- [ ] Lost column appears next to Won column, collapsed by default
+- [ ] Both columns show correct count badges
+- [ ] Both columns show empty state when no closed opportunities exist
+- [ ] Expanding Won column shows Won opportunities with green header
+- [ ] Expanding Lost column shows Lost opportunities with red header
+- [ ] Collapsing columns returns them to slim pill state
+- [ ] Marking an opportunity Won moves it out of active column immediately
+- [ ] Marking an opportunity Lost moves it out of active column immediately
+- [ ] Won/Lost count badges update in real time after action
+- [ ] Reopen action correctly clears closed status and returns opportunity to active column
+- [ ] Active pipeline columns no longer show closed opportunities
+- [ ] Pipeline switcher dropdown appears next to pipeline label in opportunity panel header
+- [ ] Dropdown lists all available pipelines
+- [ ] Selecting a pipeline immediately moves the opportunity
+- [ ] Stage handled correctly if incompatible with new pipeline
+- [ ] No TypeScript errors, no console errors
+- [ ] All previously working functionality remains intact
+
+## END OF PROMPT

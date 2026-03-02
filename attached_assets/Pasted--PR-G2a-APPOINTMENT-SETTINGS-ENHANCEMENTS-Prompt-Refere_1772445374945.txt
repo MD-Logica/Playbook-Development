@@ -1,0 +1,344 @@
+# PR-G2a — APPOINTMENT SETTINGS ENHANCEMENTS
+
+## Prompt Reference
+Code: PR-G2a | Settings work: customizable appointment statuses, readiness indicators, internal block types, Settings sidebar additions, schema additions for attendees
+Run on MEDIUM AUTONOMY — new schema models, new API routes, new settings pages only. Do not touch the calendar page, BookingModal, or existing appointment API routes.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated.
+
+## Prompt Order & Dependencies
+Standalone. PR-G2b depends on this prompt being completed first — the `AppointmentAttendee`, `InternalBlockType`, and `AppointmentCustomStatus` models created here are required there.
+
+## Replit Instructions
+- This prompt adds new Prisma models, new API routes, and new settings pages.
+- After updating `prisma/schema.prisma`, run: `npx prisma migrate dev --name appointment_settings_enhancements`
+- Do not modify `prisma/schema.prisma` beyond the additions listed below.
+- Do not touch `components/appointments/BookingModal.tsx` or `app/(dashboard)/appointments/page.tsx`.
+- When complete: verify all three new settings pages load, all CRUD operations work, the settings sidebar shows the new items, and there are no TypeScript or console errors.
+
+---
+
+## Change 1: Prisma Schema Additions
+
+Add the following models and enums to `prisma/schema.prisma` **after the existing `AppointmentSubcategory` model** at the bottom of the file.
+
+```prisma
+model AppointmentCustomStatus {
+  id           String    @id @default(cuid())
+  practiceId   String
+  label        String
+  color        String    @default("#6B7280")
+  isSystem     Boolean   @default(false)
+  isTerminal   Boolean   @default(false)
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  practice     Practice  @relation(fields: [practiceId], references: [id])
+
+  @@unique([practiceId, label])
+  @@index([practiceId])
+}
+
+model ReadinessIndicator {
+  id              String                   @id @default(cuid())
+  practiceId      String
+  label           String
+  icon            String                   @default("check-circle")
+  integrationType ReadinessIntegrationType @default(MANUAL)
+  integrationKey  String?
+  isEnabled       Boolean                  @default(true)
+  sortOrder       Int                      @default(0)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  practice        Practice                 @relation(fields: [practiceId], references: [id])
+
+  @@unique([practiceId, label])
+  @@index([practiceId])
+}
+
+enum ReadinessIntegrationType {
+  MANUAL
+  STRIPE
+  DOCUSIGN
+  PANDADOC
+}
+
+model InternalBlockType {
+  id          String    @id @default(cuid())
+  practiceId  String
+  name        String
+  color       String    @default("#6B7280")
+  isSystem    Boolean   @default(false)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  practice    Practice  @relation(fields: [practiceId], references: [id])
+
+  @@unique([practiceId, name])
+  @@index([practiceId])
+}
+
+model AppointmentAttendee {
+  id            String      @id @default(cuid())
+  appointmentId String
+  userId        String
+  isPrimary     Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id])
+
+  @@unique([appointmentId, userId])
+  @@index([appointmentId])
+  @@index([userId])
+}
+```
+
+### Add relations to existing models
+
+In the **`Practice`** model, add inside the model body:
+```prisma
+  customStatuses          AppointmentCustomStatus[]
+  readinessIndicators     ReadinessIndicator[]
+  internalBlockTypes      InternalBlockType[]
+```
+
+In the **`Appointment`** model, add:
+```prisma
+  attendees               AppointmentAttendee[]
+```
+
+In the **`User`** model, add:
+```prisma
+  appointmentAttendances  AppointmentAttendee[]
+```
+
+---
+
+## Change 2: Default Data (Lazy Seeding in API Routes)
+
+When a practice has no records for a new managed list, seed the defaults automatically on the first GET request, then return them. Do this inside the API route handler — not in the Prisma seed file.
+
+### Default Appointment Statuses (sorted by `sortOrder` 0–7):
+| sortOrder | Label | Color | isSystem | isTerminal |
+|-----------|-------|-------|----------|------------|
+| 0 | Confirmed | #10B981 | true | false |
+| 1 | Checked In | #3B82F6 | true | false |
+| 2 | Roomed | #8B5CF6 | true | false |
+| 3 | In Progress | #F59E0B | true | false |
+| 4 | Ended | #64748B | true | false |
+| 5 | Checked Out | #64748B | true | true |
+| 6 | No Show | #EF4444 | true | true |
+| 7 | Cancelled | #EF4444 | true | true |
+
+### Default Readiness Indicators (sorted by `sortOrder` 0–2):
+| sortOrder | Label | Icon | integrationType |
+|-----------|-------|------|-----------------|
+| 0 | Consultation Fee | dollar-sign | STRIPE |
+| 1 | Consent Forms | file-text | DOCUSIGN |
+| 2 | Intake Forms | clipboard | MANUAL |
+
+### Default Internal Block Types (sorted by `sortOrder` 0–5):
+| sortOrder | Name | Color | isSystem |
+|-----------|------|-------|----------|
+| 0 | Lunch Break | #F59E0B | true |
+| 1 | Staff Meeting | #3B82F6 | true |
+| 2 | Personal Time | #8B5CF6 | false |
+| 3 | Vendor Meeting | #64748B | false |
+| 4 | Training | #10B981 | false |
+| 5 | Other | #6B7280 | false |
+
+---
+
+## Change 3: API Routes
+
+### `GET /api/settings/appointment-statuses`
+Return all statuses for the practice sorted by `sortOrder`. If the count is 0, seed defaults first using `prisma.appointmentCustomStatus.createMany()`, then return them.
+
+### `POST /api/settings/appointment-statuses`
+Create a new custom status. Validate:
+- `label` required, max 40 chars
+- `label` must be unique within the practice
+- `color` must be a valid hex color string (matches `/^#[0-9A-Fa-f]{6}$/`)
+- Cannot set `isSystem: true` via POST — ignored if provided
+Returns the created record.
+
+### `PATCH /api/settings/appointment-statuses/[id]`
+Accepts: `label`, `color`, `sortOrder`, `isTerminal`.
+- If the status has `isSystem: true`: only `color` and `sortOrder` may be changed. Attempts to change `label` or `isTerminal` on system statuses return 400: `"System status labels cannot be modified."`
+- Cannot change `isSystem` flag at all.
+
+### `DELETE /api/settings/appointment-statuses/[id]`
+If `isSystem: true`: return 400 `"System statuses cannot be deleted."` Otherwise, hard delete.
+
+### `POST /api/settings/appointment-statuses/reorder`
+Body: `{ ids: string[] }` — ordered array of status IDs. Update `sortOrder` for each in a `prisma.$transaction`, where index in the array becomes the new `sortOrder`.
+
+---
+
+### `GET /api/settings/readiness-indicators`
+Return all indicators for the practice sorted by `sortOrder`. Seed defaults if none exist.
+
+### `POST /api/settings/readiness-indicators`
+Validate: `label` required, max 50 chars, unique within practice. `icon` must be one of: `check-circle`, `dollar-sign`, `file-text`, `clipboard`, `shield`, `heart`, `user-check`, `calendar-check`, `camera`, `pill`, `stethoscope`. `integrationType` must be a valid `ReadinessIntegrationType` enum value. Returns created record.
+
+### `PATCH /api/settings/readiness-indicators/[id]`
+Accepts: `label`, `icon`, `isEnabled`, `sortOrder`, `integrationType`. No system-lock — all indicators (including defaults) can be fully edited.
+
+### `DELETE /api/settings/readiness-indicators/[id]`
+Hard delete. No restrictions.
+
+### `POST /api/settings/readiness-indicators/reorder`
+Same pattern as status reorder — body `{ ids: string[] }`, updates `sortOrder` per index.
+
+---
+
+### `GET /api/settings/internal-block-types`
+Return all block types for the practice sorted by `sortOrder`. Seed defaults if none exist.
+
+### `POST /api/settings/internal-block-types`
+Validate: `name` required, max 40 chars, unique within practice. Cannot set `isSystem: true` via POST.
+
+### `PATCH /api/settings/internal-block-types/[id]`
+Accepts: `name`, `color`, `sortOrder`. If `isSystem: true`: only `color` and `sortOrder` may be changed. Changing `name` on a system type returns 400: `"System block type names cannot be modified."`
+
+### `DELETE /api/settings/internal-block-types/[id]`
+If `isSystem: true`: return 400 `"System block types cannot be deleted."` Otherwise, hard delete.
+
+---
+
+## Change 4: Settings Pages
+
+Use the existing Appointment Types page (`app/(dashboard)/settings/appointment-types/page.tsx`) as the visual and structural reference for all three new pages. Follow its exact patterns: TanStack Query for data fetching, optimistic UI, inline edit rows, modal for adding new items, the 12-color palette, loading skeletons.
+
+### New page: `app/(dashboard)/settings/appointment-statuses/page.tsx`
+
+**Page header:** "Appointment Statuses" | description: "Customize the status workflow for your appointments. System statuses cannot be deleted."
+
+**List rows** (each status is a row):
+- 12px color circle swatch
+- Label text
+- "System" badge (gray pill, `#f1f5f9` bg / `#64748b` text) if `isSystem: true`
+- "Terminal" badge (red pill, `#fef2f2` bg / `#ef4444` text) if `isTerminal: true`
+- Edit button (Pencil icon) — for system statuses, only color is editable so show the edit button but disable the label field in the edit row
+- Delete button (Trash icon) — hidden entirely for system statuses
+
+**Inline edit state** (replaces the row):
+- Color picker (same 12-color palette as appointment-types page)
+- Label input — disabled (grayed out, `cursor: not-allowed`) for system statuses
+- "Terminal" checkbox ("Marks appointment as completed/ended") — disabled for system statuses
+- Save / Cancel buttons
+
+**Add modal:**
+- Label (required text input)
+- Color picker (same palette)
+- "Terminal" checkbox
+- Save / Cancel
+
+---
+
+### New page: `app/(dashboard)/settings/readiness-indicators/page.tsx`
+
+**Page header:** "Readiness Indicators" | description: "Configure which indicators are tracked per appointment. Connect integrations as they become available."
+
+**List rows:**
+- Drag handle icon (GripVertical from lucide) — triggers reorder via `POST .../reorder`
+- Icon preview: render the lucide icon matching the `icon` field name at 16px
+- Label
+- Integration badge pill:
+  - STRIPE → green pill "Stripe" (`#f0fdf4` / `#16a34a`)
+  - DOCUSIGN → blue pill "DocuSign" (`#eff6ff` / `#2563eb`)
+  - PANDADOC → purple pill "PandaDoc" (`#faf5ff` / `#7c3aed`)
+  - MANUAL → gray pill "Manual" (`#f1f5f9` / `#64748b`)
+- Toggle switch for `isEnabled` (calls PATCH on change)
+- Edit button (Pencil)
+- Delete button (Trash)
+
+**Add / Edit modal:**
+- Label (text input)
+- Icon (select dropdown showing icon preview + name for all 11 allowed icons)
+- Integration type (select: Manual, Stripe, DocuSign, PandaDoc)
+- Save / Cancel
+
+Drag-to-reorder: use `@dnd-kit/sortable` (already installed) on the list. On drag end, call `POST /api/settings/readiness-indicators/reorder` with the new ordered IDs.
+
+---
+
+### New page: `app/(dashboard)/settings/internal-block-types/page.tsx`
+
+**Page header:** "Internal Block Types" | description: "Preset categories for scheduling non-patient time. System types cannot be deleted."
+
+**List rows:**
+- 12px color circle
+- Name
+- "System" badge if `isSystem: true`
+- Edit (Pencil) — shows edit row; for system types, only color is editable
+- Delete (Trash) — hidden for system types
+
+**Inline edit row:** Same pattern as appointment statuses — color picker, name input (disabled for system types), Save / Cancel.
+
+**Add modal:** Name (required) + color picker.
+
+---
+
+## Change 5: Settings Sidebar Navigation
+
+In `app/(dashboard)/settings/layout.tsx`, update the Appointments section inside `NAV_ITEMS`. Import `Activity`, `CheckSquare`, and `Lock` from `lucide-react` at the top of the file alongside the existing imports.
+
+Replace the current Appointments section:
+```ts
+{
+  label: "Appointments",
+  icon: CalendarClock,
+  children: [
+    { label: "Appointment Types", href: "/settings/appointment-types", icon: CalendarClock },
+    { label: "Working Hours", href: "/settings/working-hours", icon: Clock, comingSoon: true },
+  ],
+},
+```
+
+With:
+```ts
+{
+  label: "Appointments",
+  icon: CalendarClock,
+  children: [
+    { label: "Appointment Types",    href: "/settings/appointment-types",    icon: CalendarClock },
+    { label: "Appointment Statuses", href: "/settings/appointment-statuses", icon: Activity },
+    { label: "Readiness Indicators", href: "/settings/readiness-indicators", icon: CheckSquare },
+    { label: "Internal Block Types", href: "/settings/internal-block-types", icon: Lock },
+    { label: "Working Hours",        href: "/settings/working-hours",        icon: Clock, comingSoon: true },
+  ],
+},
+```
+
+---
+
+## Delivery Checklist
+- [ ] All 4 new Prisma models added to schema
+- [ ] `ReadinessIntegrationType` enum added
+- [ ] Relations added to `Practice`, `Appointment`, and `User` models
+- [ ] `npx prisma migrate dev` runs successfully with no errors
+- [ ] GET `/api/settings/appointment-statuses` seeds 8 defaults on first call, returns them sorted
+- [ ] POST creates non-system statuses; system `isSystem` flag cannot be set via POST
+- [ ] PATCH: system statuses block label/isTerminal changes; only color/sortOrder allowed
+- [ ] DELETE: returns 400 for system statuses
+- [ ] Reorder endpoint updates sortOrder in transaction
+- [ ] GET `/api/settings/readiness-indicators` seeds 3 defaults on first call
+- [ ] Full CRUD + reorder for readiness indicators
+- [ ] GET `/api/settings/internal-block-types` seeds 6 defaults on first call
+- [ ] PATCH/DELETE: system block types block name changes and deletion
+- [ ] All three settings pages render without error
+- [ ] Appointment Statuses: system rows show lock behavior (no delete, label disabled in edit)
+- [ ] Readiness Indicators: drag-to-reorder works; toggle switch updates isEnabled immediately
+- [ ] Internal Block Types: system rows show lock behavior
+- [ ] All three pages in settings sidebar under Appointments section
+- [ ] Settings sidebar Appointments section auto-expands when on any of the new pages
+- [ ] No TypeScript errors, no console errors
+
+## END OF PROMPT

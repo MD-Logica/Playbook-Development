@@ -39,7 +39,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error.message?.includes("No practice found")) {
+    if (error.message?.includes("No practice found") || error.message?.includes("No organization context found")) {
       return NextResponse.json({ error: "No practice found" }, { status: 404 });
     }
     console.error("PATCH /api/settings/products-services/[id]/archive error:", error);

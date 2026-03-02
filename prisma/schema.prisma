@@ -261,6 +261,9 @@ model Practice {
   incomeCategories IncomeCategory[]
   productServices  ProductService[]
   configuredAppointmentTypes ConfiguredAppointmentType[]
+  customStatuses          AppointmentCustomStatus[]
+  readinessIndicators     ReadinessIndicator[]
+  internalBlockTypes      InternalBlockType[]
 }
 
 model PracticeTag {
@@ -469,6 +472,7 @@ model User {
   invoicesCoordinated       Invoice[]       @relation("InvoiceCoordinator")
   invoiceLineItemsProvider  InvoiceLineItem[] @relation("InvoiceLineItemProvider")
   paymentsRecorded          Payment[]       @relation("PaymentRecordedBy")
+  appointmentAttendances    AppointmentAttendee[]
   defaultLandingPage        String?
 
   @@index([practiceId])
@@ -688,6 +692,8 @@ model Appointment {
   cancelledAt         DateTime?
   cancelReason        String?
   noShowFee           Decimal?          @db.Decimal(10, 2)
+  blockTypeId         String?
+  isRunningLate       Boolean           @default(false)
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   deletedAt           DateTime?
@@ -699,7 +705,9 @@ model Appointment {
   createdBy       User                  @relation("CreatedBy", fields: [createdById], references: [id])
   configuredType  ConfiguredAppointmentType? @relation(fields: [appointmentTypeId], references: [id])
   subcategory     AppointmentSubcategory?   @relation(fields: [subcategoryId], references: [id])
+  blockType       InternalBlockType?        @relation(fields: [blockTypeId], references: [id])
 
+  attendees      AppointmentAttendee[]
   holds          AppointmentHold[]
   photos         Photo[]
   implantRecords ImplantRecord[]
@@ -1241,4 +1249,78 @@ model AppointmentSubcategory {
 
   @@unique([appointmentTypeId, name])
   @@index([practiceId])
+}
+
+model AppointmentCustomStatus {
+  id           String    @id @default(cuid())
+  practiceId   String
+  label        String
+  color        String    @default("#6B7280")
+  isSystem     Boolean   @default(false)
+  isTerminal   Boolean   @default(false)
+  sortOrder    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  practice     Practice  @relation(fields: [practiceId], references: [id])
+
+  @@unique([practiceId, label])
+  @@index([practiceId])
+}
+
+model ReadinessIndicator {
+  id              String                   @id @default(cuid())
+  practiceId      String
+  label           String
+  icon            String                   @default("check-circle")
+  integrationType ReadinessIntegrationType @default(MANUAL)
+  integrationKey  String?
+  isEnabled       Boolean                  @default(true)
+  sortOrder       Int                      @default(0)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  practice        Practice                 @relation(fields: [practiceId], references: [id])
+
+  @@unique([practiceId, label])
+  @@index([practiceId])
+}
+
+enum ReadinessIntegrationType {
+  MANUAL
+  STRIPE
+  DOCUSIGN
+  PANDADOC
+}
+
+model InternalBlockType {
+  id          String    @id @default(cuid())
+  practiceId  String
+  name        String
+  color       String    @default("#6B7280")
+  isSystem    Boolean   @default(false)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  practice     Practice      @relation(fields: [practiceId], references: [id])
+  appointments Appointment[]
+
+  @@unique([practiceId, name])
+  @@index([practiceId])
+}
+
+model AppointmentAttendee {
+  id            String      @id @default(cuid())
+  appointmentId String
+  userId        String
+  isPrimary     Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id])
+
+  @@unique([appointmentId, userId])
+  @@index([appointmentId])
+  @@index([userId])
 }

@@ -21,17 +21,18 @@ export async function requirePractice() {
   const session = await requireAuth();
   const orgId = session.orgId;
 
-  if (orgId) {
-    const practice = await prisma.practice.findUnique({
-      where: { clerkOrgId: orgId },
-    });
-    if (practice) return practice;
+  if (!orgId) {
+    throw new Error("No organization context found");
   }
 
-  const practice = await prisma.practice.findFirst({
-    where: { deletedAt: null },
+  const practice = await prisma.practice.findUnique({
+    where: { clerkOrgId: orgId },
   });
-  if (!practice) throw new Error("No practice found");
+
+  if (!practice) {
+    throw new Error("No practice found");
+  }
+
   return practice;
 }
 

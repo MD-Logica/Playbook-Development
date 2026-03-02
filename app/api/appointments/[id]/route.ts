@@ -19,6 +19,11 @@ export async function GET(
         configuredType: { select: { id: true, name: true, color: true, durationMins: true, bufferMins: true } },
         subcategory: { select: { id: true, name: true } },
         opportunity: { select: { id: true, title: true } },
+        attendees: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
       },
     });
 
@@ -68,6 +73,8 @@ export async function PATCH(
       location,
       notes,
       roomName,
+      blockTypeId,
+      attendeeIds,
     } = body;
 
     const data: any = {};
@@ -85,6 +92,7 @@ export async function PATCH(
     if (location !== undefined) data.location = location || null;
     if (notes !== undefined) data.notes = notes || null;
     if (roomName !== undefined) data.roomName = roomName || null;
+    if (blockTypeId !== undefined) data.blockTypeId = blockTypeId || null;
 
     const startTimeChanged = startTime && new Date(startTime).getTime() !== appointment.startTime.getTime();
 
@@ -97,8 +105,26 @@ export async function PATCH(
         configuredType: { select: { id: true, name: true, color: true, durationMins: true, bufferMins: true } },
         subcategory: { select: { id: true, name: true } },
         opportunity: { select: { id: true, title: true } },
+        attendees: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
       },
     });
+
+    if (attendeeIds !== undefined) {
+      await prisma.appointmentAttendee.deleteMany({ where: { appointmentId: id } });
+      if (attendeeIds.length > 0) {
+        await prisma.appointmentAttendee.createMany({
+          data: attendeeIds.map((userId: string) => ({
+            appointmentId: id,
+            userId,
+            isPrimary: false,
+          })),
+        });
+      }
+    }
 
     if (appointment.patientId) {
       if (startTimeChanged) {

@@ -1,0 +1,1029 @@
+# PR-G2b — CALENDAR & APPOINTMENT ENHANCEMENTS
+
+## Prompt Reference
+Code: PR-G2b | Calendar enhancements: inline popover cancel/no-show confirmations, multi-attendee support, drag-and-drop rescheduling (day + week view), internal blocks overhaul, appointment history drawer
+Run on MEDIUM AUTONOMY — modifies existing calendar page, BookingModal, and appointment API routes.
+
+## Read This First
+Before starting any work, verify this prompt ends with the line: `## END OF PROMPT`
+If that line is not present, stop immediately and notify the user that the prompt may have been truncated.
+
+## Prompt Order & Dependencies
+**Requires PR-G2a to be completed first.** The `AppointmentAttendee`, `InternalBlockType`, and `AppointmentCustomStatus` models and their API routes are prerequisites.
+
+## Replit Instructions
+- Primary files modified: `app/(dashboard)/appointments/page.tsx`, `components/appointments/BookingModal.tsx`, `app/api/appointments/route.ts`, `app/api/appointments/[id]/route.ts`
+- New file added: `app/api/appointments/[id]/history/route.ts`
+- One schema addition required (see Change 5): run `npx prisma migrate dev --name add_running_late_to_appointment` after updating the schema
+- dnd-kit is already installed (`@dnd-kit/core`, `@dnd-kit/utilities`) — use these for drag and drop
+- All existing calendar functionality must remain intact: day/week/agenda views, provider filter, slot clicking, navigation, new appointment button, hover status buttons on blocks
+- When complete: book an appointment, drag it, add attendees, create a recurring internal block, open history — all should work
+- No TypeScript errors, no console errors
+
+---
+
+## Change 1: Inline Cancel / No-Show Confirmations in the Popover
+
+### Context
+The `AppointmentPopover` function (line ~973 in `appointments/page.tsx`) already renders status action buttons using `onStatusChange`. Currently Cancel and No Show fire immediately via `handleStatusChange`. Update the popover to show an inline confirmation step instead.
+
+### Add local state to `AppointmentPopover`:
+```ts
+const [confirmingStatus, setConfirmingStatus] = useState<"CANCELLED" | "NO_SHOW" | null>(null);
+const [cancelReason, setCancelReason] = useState("");
+```
+
+### New rendering logic for the status actions section:
+
+Replace the current status actions `div` with this conditional:
+
+**When `confirmingStatus === "CANCELLED"`** — show inline within the popover body:
+```
+┌─ "Cancel this appointment?" ──────────────────────┐
+│  [reason input: "Reason (optional)"]              │
+│  [Yes, Cancel — red]    [Go Back — gray]          │
+└───────────────────────────────────────────────────┘
+```
+- "Yes, Cancel" calls `onStatusChange(appt.id, "CANCELLED", cancelReason)` then resets state
+- "Go Back" sets `confirmingStatus` back to null
+
+**When `confirmingStatus === "NO_SHOW"`** — show inline:
+```
+┌─ "Mark as no-show?" ──────────────────────────────┐
+│  [Yes, No-Show — amber]    [Go Back — gray]       │
+└───────────────────────────────────────────────────┘
+```
+
+**Otherwise** — show the existing action buttons, but change the Cancel and No Show buttons to set `confirmingStatus` instead of calling `onStatusChange` directly.
+
+### Update `onStatusChange` prop and `handleStatusChange`:
+
+The `AppointmentPopover`'s `onStatusChange` prop signature needs an optional reason parameter:
+```ts
+onStatusChange: (id: string, status: string, reason?: string) => void;
+```
+
+Update `handleStatusChange` in `AppointmentsPage` to accept and forward the optional reason:
+```ts
+const handleStatusChange = useCallback(async (appointmentId: string, newStatus: string, reason?: string) => {
+  try {
+    const res = await fetch(`/api/appointments/${appointmentId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus, ...(reason ? { reason } : {}) }),
+    });
+    if (res.ok) {
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments/agenda"] });
+      if (popover && popover.appt.id === appointmentId) {
+        setPopover(null);
+      }
+    }
+  } catch {}
+}, [queryClient, popover]);
+```
+
+### Inline confirmation styling:
+- Container: `background: var(--bg-secondary)`, `border-radius: 8px`, `padding: 12px`, `margin-top: 8px`
+- Title: `font-size: 13px`, `font-weight: 600`, `color: var(--text-primary)`, `margin-bottom: 8px`
+- Reason input (Cancel only): full-width, standard input style, placeholder "Reason (optional)", `margin-bottom: 8px`
+- Buttons: same pill styling already used elsewhere in the popover
+
+---
+
+## Change 2: Multi-Attendee Support
+
+### AppointmentData interface addition
+Add to the `AppointmentData` interface at the top of `appointments/page.tsx`:
+```ts
+attendees: { id: string; user: { id: string; firstName: string; lastName: string } }[];
+```
+(This will be populated once the API returns it — see API section below.)
+
+### AppointmentBlock — attendee avatars
+In the "full height" block render (height ≥ 40px), after the `typeName` div and before the time range line, add:
+
+```tsx
+{appt.attendees && appt.attendees.length > 0 && (
+  <div style={{ display: "flex", marginTop: "3px", gap: "-4px" }}>
+    {appt.attendees.slice(0, 3).map((att, i) => (
+      <div key={att.id} style={{
+        width: "16px", height: "16px", borderRadius: "50%",
+        backgroundColor: getProviderColor(i + 1),
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "7px", fontWeight: 700, color: "#fff",
+        border: "1px solid #fff",
+        marginLeft: i > 0 ? "-4px" : "0",
+        zIndex: appt.attendees.length - i,
+        position: "relative",
+      }}>
+        {att.user.firstName[0]}{att.user.lastName[0]}
+      </div>
+    ))}
+    {appt.attendees.length > 3 && (
+      <div style={{
+        width: "16px", height: "16px", borderRadius: "50%",
+        backgroundColor: "#94a3b8",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "7px", fontWeight: 700, color: "#fff",
+        border: "1px solid #fff",
+        marginLeft: "-4px",
+        position: "relative",
+      }}>
+        +{appt.attendees.length - 3}
+      </div>
+    )}
+  </div>
+)}
+```
+
+### Calendar column behavior for attendees
+
+In DayView, when building `colAppts` for each provider column:
+```ts
+// Currently:
+const colAppts = provider
+  ? filteredAppts.filter((a) => a.provider?.id === provider.id)
+  : filteredAppts;
+
+// Update to:
+const colAppts = provider
+  ? filteredAppts.filter(
+      (a) => a.provider?.id === provider.id ||
+             a.attendees?.some(att => att.user.id === provider.id)
+    )
+  : filteredAppts;
+```
+
+When an appointment appears on an attendee's column (not their primary column), render it with `opacity: 0.85` and add a small person icon (`UserIcon` at 10px, color `#94a3b8`) in the top-left corner of the block to signal "attendee, not primary."
+
+Do the same in WeekView's `dayAppts` filter — if a provider filter is active, also include appointments where the current user is an attendee.
+
+### BookingModal — Primary Provider + Additional Attendees
+
+Replace the current single "Provider *" dropdown with two fields:
+
+**Field 1 — Primary Provider (required):**
+```tsx
+<div>
+  <label style={labelStyle}>Primary Provider *</label>
+  <select
+    data-testid="select-provider"
+    style={{ ...inputStyle, cursor: "pointer" }}
+    value={providerId}
+    onChange={(e) => {
+      setProviderId(e.target.value);
+      // Remove this provider from attendees if present
+      setAttendeeIds(prev => prev.filter(id => id !== e.target.value));
+    }}
+  >
+    <option value="">Select provider...</option>
+    {providers.map(p => (
+      <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+    ))}
+  </select>
+</div>
+```
+
+**Field 2 — Additional Attendees (optional):**
+Add state: `const [attendeeIds, setAttendeeIds] = useState<string[]>([]);`
+Add state: `const [attendeeSearch, setAttendeeSearch] = useState("");`
+
+Render:
+```tsx
+<div>
+  <label style={labelStyle}>Additional Attendees</label>
+  {/* Selected attendee chips */}
+  {attendeeIds.length > 0 && (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+      {attendeeIds.map((id, i) => {
+        const p = providers.find(p => p.id === id);
+        if (!p) return null;
+        return (
+          <div key={id} style={{
+            display: "flex", alignItems: "center", gap: "6px",
+            padding: "3px 8px 3px 4px",
+            backgroundColor: "var(--bg-secondary)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "20px",
+            fontSize: "12px",
+          }}>
+            <div style={{
+              width: "20px", height: "20px", borderRadius: "50%",
+              backgroundColor: getProviderColor(i),
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "8px", fontWeight: 700, color: "#fff",
+            }}>
+              {p.firstName[0]}{p.lastName[0]}
+            </div>
+            <span style={{ color: "var(--text-primary)" }}>{p.firstName} {p.lastName}</span>
+            <button onClick={() => setAttendeeIds(prev => prev.filter(a => a !== id))}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0", lineHeight: 1 }}>
+              <X size={12} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  )}
+  {/* Search input */}
+  <select
+    style={{ ...inputStyle, cursor: "pointer" }}
+    value=""
+    onChange={(e) => {
+      const id = e.target.value;
+      if (id && !attendeeIds.includes(id) && id !== providerId) {
+        setAttendeeIds(prev => [...prev, id]);
+      }
+    }}
+  >
+    <option value="">Add attendee...</option>
+    {providers
+      .filter(p => p.id !== providerId && !attendeeIds.includes(p.id))
+      .map(p => (
+        <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
+      ))
+    }
+  </select>
+</div>
+```
+
+**In edit mode**, pre-populate `attendeeIds` from `appt.attendees.map(a => a.user.id)` when loading edit data.
+
+**In `buildPayload()`**, include `attendeeIds` in the returned object.
+
+### API changes for attendees
+
+**`GET /api/appointments`** — add attendees to the include:
+```ts
+attendees: {
+  include: {
+    user: { select: { id: true, firstName: true, lastName: true } }
+  }
+}
+```
+
+**`GET /api/appointments/agenda`** — same attendees include.
+
+**`POST /api/appointments`** — accept `attendeeIds?: string[]`. After creating the appointment, if `attendeeIds` has items, create `AppointmentAttendee` records in the same transaction:
+```ts
+// After appointment is created:
+if (attendeeIds && attendeeIds.length > 0) {
+  await prisma.appointmentAttendee.createMany({
+    data: attendeeIds.map((userId: string) => ({
+      appointmentId: appointment.id,
+      userId,
+      isPrimary: false,
+    })),
+  });
+}
+```
+
+**`PATCH /api/appointments/[id]`** — accept `attendeeIds?: string[]`. When provided (even if empty array), replace all attendees:
+```ts
+if (body.attendeeIds !== undefined) {
+  await prisma.$transaction([
+    prisma.appointmentAttendee.deleteMany({ where: { appointmentId: id } }),
+    ...(body.attendeeIds.length > 0
+      ? [prisma.appointmentAttendee.createMany({
+          data: body.attendeeIds.map((userId: string) => ({
+            appointmentId: id, userId, isPrimary: false,
+          })),
+        })]
+      : []),
+  ]);
+}
+```
+
+**`GET /api/appointments/[id]`** — include attendees in the response:
+```ts
+attendees: {
+  include: {
+    user: { select: { id: true, firstName: true, lastName: true } }
+  }
+}
+```
+
+---
+
+## Change 3: Drag-and-Drop Rescheduling
+
+### Overview
+Wrap the calendar grids in `DndContext`. Each patient appointment block becomes draggable. Each 15-minute time slot in both DayView and WeekView becomes a drop target. On drop, show a confirmation modal. On confirm, call PATCH. Internal blocks are never draggable.
+
+### Setup in `AppointmentsPage`
+
+Add state at the top of `AppointmentsPage`:
+```ts
+const [rescheduleConfirm, setRescheduleConfirm] = useState<{
+  appointmentId: string;
+  patientName: string;
+  typeName: string;
+  fromTime: Date;
+  toTime: Date;
+  newProviderId?: string;
+  durationMins: number;
+} | null>(null);
+const [activeAppt, setActiveAppt] = useState<AppointmentData | null>(null);
+```
+
+Add import at top of file:
+```ts
+import { DndContext, DragEndEvent, DragStartEvent, DragOverlay, useDroppable, useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+```
+
+Wrap the entire calendar area (the `div` containing `{view === "day" && ...}` etc.) in:
+```tsx
+<DndContext
+  onDragStart={(event: DragStartEvent) => {
+    const appt = filteredAppointments.find(a => a.id === event.active.id);
+    setActiveAppt(appt || null);
+  }}
+  onDragEnd={(event: DragEndEvent) => {
+    setActiveAppt(null);
+    if (!event.over || !activeAppt) return;
+
+    const overId = String(event.over.id);
+    // Drop target IDs are encoded as: "slot-[isoDate]-[hour]-[minute]-[providerId|'same']"
+    if (!overId.startsWith("slot-")) return;
+
+    const parts = overId.split("-");
+    // parts: ["slot", isoDate, hour, minute, providerId]
+    const isoDate = parts[1];
+    const hour = parseInt(parts[2]);
+    const minute = parseInt(parts[3]);
+    const newProviderId = parts[4] === "same" ? activeAppt.provider?.id : parts[4];
+
+    const originalStart = new Date(activeAppt.startTime);
+    const originalEnd = new Date(activeAppt.endTime);
+    const durationMins = Math.round((originalEnd.getTime() - originalStart.getTime()) / 60000);
+
+    const newStart = new Date(isoDate);
+    newStart.setHours(hour, minute, 0, 0);
+
+    // No-op if same time and same provider
+    if (
+      newStart.getTime() === originalStart.getTime() &&
+      newProviderId === activeAppt.provider?.id
+    ) return;
+
+    const patientName = activeAppt.patient
+      ? `${activeAppt.patient.firstName} ${activeAppt.patient.lastName}`
+      : activeAppt.title;
+    const typeName = activeAppt.configuredType?.name || activeAppt.appointmentCategory;
+
+    setRescheduleConfirm({
+      appointmentId: activeAppt.id,
+      patientName,
+      typeName,
+      fromTime: originalStart,
+      toTime: newStart,
+      newProviderId,
+      durationMins,
+    });
+  }}
+>
+  {/* ... calendar views ... */}
+  <DragOverlay>
+    {activeAppt && (
+      <div style={{
+        width: "160px",
+        backgroundColor: colorWithAlpha(getApptColor(activeAppt), 0.9),
+        borderLeft: `3px solid ${getApptColor(activeAppt)}`,
+        borderRadius: "6px",
+        padding: "4px 8px",
+        fontSize: "12px",
+        fontWeight: 600,
+        color: "#1e293b",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+        opacity: 0.9,
+        cursor: "grabbing",
+      }}>
+        {activeAppt.patient
+          ? `${activeAppt.patient.firstName} ${activeAppt.patient.lastName}`
+          : activeAppt.title}
+      </div>
+    )}
+  </DragOverlay>
+</DndContext>
+```
+
+### Draggable appointment block
+
+In `AppointmentBlock`, accept a new optional prop `draggable?: boolean`. When `draggable` is true and the appointment is not internal:
+
+```ts
+const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  id: appt.id,
+  disabled: appt.isInternal || !draggable,
+});
+```
+
+Apply to the outer div:
+```ts
+ref={draggable && !appt.isInternal ? setNodeRef : undefined}
+style={{
+  ...existingStyles,
+  transform: isDragging ? CSS.Translate.toString(transform) : undefined,
+  opacity: isDragging ? 0.4 : existingOpacity,  // ghost in place
+  cursor: draggable && !appt.isInternal ? "grab" : "pointer",
+}}
+{...(draggable && !appt.isInternal ? { ...attributes, ...listeners } : {})}
+```
+
+Pass `draggable={true}` to `AppointmentBlock` instances in `DayView` and `WeekView`.
+
+### Droppable time slots
+
+In both `DayView` and `WeekView`, update `HourGrid` (or the slot click handlers) to make each 15-minute slot a drop target. Each slot's `id` is:
+
+**DayView (multi-provider):** `slot-${date.toISOString().split('T')[0]}-${hour}-${minute}-${provider.id}`
+**DayView (single provider):** `slot-${date.toISOString().split('T')[0]}-${hour}-${minute}-same`
+**WeekView:** `slot-${day.toISOString().split('T')[0]}-${hour}-${minute}-same`
+
+Create a `DroppableSlot` component:
+```tsx
+function DroppableSlot({ id, style, children }: { id: string; style: React.CSSProperties; children?: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} style={{
+      ...style,
+      backgroundColor: isOver ? "rgba(16,185,129,0.08)" : style.backgroundColor,
+      transition: "background-color 100ms",
+    }}>
+      {isOver && (
+        <div style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "none",
+          fontSize: "10px",
+          fontWeight: 600,
+          color: "#10b981",
+        }}>
+          Drop to move
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+```
+
+Replace the existing click-only slot `div`s in `HourGrid` with `DroppableSlot` wrappers using the correct encoded IDs.
+
+### Reschedule confirmation modal
+
+Render this in `AppointmentsPage` conditionally when `rescheduleConfirm !== null`:
+
+```tsx
+{rescheduleConfirm && (
+  <RescheduleConfirmModal
+    confirm={rescheduleConfirm}
+    onCancel={() => setRescheduleConfirm(null)}
+    onConfirm={async () => {
+      const { appointmentId, toTime, durationMins, newProviderId } = rescheduleConfirm;
+      const newEnd = new Date(toTime.getTime() + durationMins * 60000);
+      await fetch(`/api/appointments/${appointmentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startTime: toTime.toISOString(),
+          endTime: newEnd.toISOString(),
+          ...(newProviderId ? { providerId: newProviderId } : {}),
+        }),
+      });
+      setRescheduleConfirm(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments/agenda"] });
+    }}
+  />
+)}
+```
+
+`RescheduleConfirmModal` is a new inline function component in `appointments/page.tsx`:
+- Centered overlay (fixed inset 0, `rgba(0,0,0,0.4)` backdrop)
+- White card, `400px` wide, `12px` border radius, `24px` padding
+- Title: "Reschedule Appointment?" — `font-size: 15px`, `font-weight: 700`
+- Patient name + type name in `font-size: 14px`, `color: var(--text-secondary)`, `margin-bottom: 16px`
+- Two rows:
+  - "From:" `[formatted date · time]` — gray text
+  - "To:" `[formatted date · time]` — `font-weight: 600`, `color: #1e293b` with a small green arrow or "→ new" label
+- `margin-bottom: 20px`
+- Button row right-aligned:
+  - "Cancel" — gray, calls `onCancel`
+  - "Confirm Reschedule" — green `#10B981`, calls `onConfirm`
+
+---
+
+## Change 4: Internal Blocks Overhaul
+
+### BookingModal — segmented tabs replace the toggle
+
+At the very top of the modal body (above all fields), replace the current toggle div with a segmented control:
+
+```tsx
+{/* Mode selector — replaces the isBlock toggle */}
+<div style={{
+  display: "flex",
+  padding: "3px",
+  backgroundColor: "var(--bg-secondary)",
+  borderRadius: "8px",
+  gap: "2px",
+}}>
+  {[
+    { value: false, label: "Patient Appointment" },
+    { value: true, label: "Internal Block" },
+  ].map(({ value, label }) => (
+    <button
+      key={String(value)}
+      onClick={() => {
+        setIsBlock(value);
+        setBlockTypeId("");
+        setBlockTitle("");
+        setRecurrence(null);
+      }}
+      style={{
+        flex: 1,
+        padding: "7px 12px",
+        fontSize: "13px",
+        fontWeight: 600,
+        borderRadius: "6px",
+        border: "none",
+        cursor: "pointer",
+        backgroundColor: isBlock === value ? "#ffffff" : "transparent",
+        color: isBlock === value ? "var(--text-primary)" : "var(--text-muted)",
+        boxShadow: isBlock === value ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+        transition: "all 150ms",
+      }}
+    >
+      {label}
+    </button>
+  ))}
+</div>
+```
+
+Remove the old toggle `label` element entirely.
+
+### New state for internal blocks:
+```ts
+const [blockTypeId, setBlockTypeId] = useState("");
+const [blockTypes, setBlockTypes] = useState<{ id: string; name: string; color: string }[]>([]);
+const [recurrence, setRecurrence] = useState<{
+  frequency: "DAILY" | "WEEKLY" | "CUSTOM";
+  customDays: number[]; // 0=Sun, 1=Mon, ... 6=Sat
+  endType: "after" | "date";
+  endAfter: number;
+  endDate: string;
+} | null>(null);
+```
+
+Fetch block types when modal opens:
+```ts
+fetch("/api/settings/internal-block-types").then(r => r.json()).then(setBlockTypes).catch(() => {});
+```
+
+Reset `blockTypeId`, `recurrence` in the existing reset `useEffect`.
+
+In edit mode, pre-populate `blockTypeId` from `appt.blockTypeId` if it exists (add `blockTypeId?: string | null` to the appointment API response — see API section).
+
+### Internal Block fields (shown when `isBlock === true`):
+
+**Block Type (required):**
+```tsx
+<div>
+  <label style={labelStyle}>Block Type *</label>
+  <select
+    data-testid="select-block-type"
+    style={{ ...inputStyle, cursor: "pointer" }}
+    value={blockTypeId}
+    onChange={(e) => {
+      setBlockTypeId(e.target.value);
+      const t = blockTypes.find(bt => bt.id === e.target.value);
+      if (t && !blockTitle) setBlockTitle(""); // don't override if user typed
+    }}
+  >
+    <option value="">Select type...</option>
+    {blockTypes.map(t => (
+      <option key={t.id} value={t.id}>{t.name}</option>
+    ))}
+  </select>
+  <div style={{ marginTop: "4px" }}>
+    <a href="/settings/internal-block-types" target="_blank"
+      style={{ fontSize: "12px", color: "var(--brand-primary)", textDecoration: "none" }}>
+      + Manage block types
+    </a>
+  </div>
+</div>
+```
+
+**Block Title (optional):**
+Existing `blockTitle` input, but update placeholder to "Custom title (optional — uses type name if blank)"
+
+**Attendees (optional):** The same "Additional Attendees" component built in Change 2. Label: "Who's involved?"
+
+**Recurring checkbox + panel:**
+```tsx
+<div>
+  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px", fontWeight: 500, color: "var(--text-secondary)" }}>
+    <input type="checkbox" checked={recurrence !== null}
+      onChange={(e) => setRecurrence(e.target.checked ? {
+        frequency: "WEEKLY", customDays: [], endType: "after", endAfter: 10, endDate: ""
+      } : null)}
+    />
+    Repeat
+  </label>
+
+  {recurrence && (
+    <div style={{ marginTop: "10px", padding: "12px", backgroundColor: "var(--bg-secondary)", borderRadius: "8px", display: "flex", flexDirection: "column", gap: "10px" }}>
+
+      {/* Frequency */}
+      <div>
+        <label style={{ ...labelStyle, marginBottom: "6px" }}>Frequency</label>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {(["DAILY", "WEEKLY", "CUSTOM"] as const).map(f => (
+            <button key={f}
+              onClick={() => setRecurrence(r => r ? { ...r, frequency: f, customDays: [] } : r)}
+              style={{
+                padding: "5px 12px", fontSize: "12px", fontWeight: 600, borderRadius: "6px", border: "1px solid",
+                borderColor: recurrence.frequency === f ? "#10B981" : "var(--border-default)",
+                backgroundColor: recurrence.frequency === f ? "rgba(16,185,129,0.08)" : "transparent",
+                color: recurrence.frequency === f ? "#10B981" : "var(--text-secondary)",
+                cursor: "pointer",
+              }}>
+              {f === "DAILY" ? "Daily" : f === "WEEKLY" ? "Weekly" : "Custom Days"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Custom days grid */}
+      {recurrence.frequency === "CUSTOM" && (
+        <div style={{ display: "flex", gap: "4px" }}>
+          {["S","M","T","W","T","F","S"].map((d, i) => (
+            <button key={i}
+              onClick={() => setRecurrence(r => r ? {
+                ...r,
+                customDays: r.customDays.includes(i)
+                  ? r.customDays.filter(d => d !== i)
+                  : [...r.customDays, i]
+              } : r)}
+              style={{
+                width: "32px", height: "32px", borderRadius: "50%", border: "1px solid",
+                borderColor: recurrence.customDays.includes(i) ? "#10B981" : "var(--border-default)",
+                backgroundColor: recurrence.customDays.includes(i) ? "rgba(16,185,129,0.1)" : "transparent",
+                color: recurrence.customDays.includes(i) ? "#10B981" : "var(--text-secondary)",
+                fontSize: "12px", fontWeight: 600, cursor: "pointer",
+              }}>
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* End condition */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <label style={labelStyle}>Ends</label>
+        <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+          <input type="radio" checked={recurrence.endType === "after"}
+            onChange={() => setRecurrence(r => r ? { ...r, endType: "after" } : r)} />
+          After
+          <input type="number" min={1} max={52} value={recurrence.endAfter}
+            onChange={(e) => setRecurrence(r => r ? { ...r, endAfter: Math.min(52, parseInt(e.target.value) || 1) } : r)}
+            style={{ ...inputStyle, width: "60px", display: "inline-block" }}
+          />
+          occurrences
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+          <input type="radio" checked={recurrence.endType === "date"}
+            onChange={() => setRecurrence(r => r ? { ...r, endType: "date" } : r)} />
+          On date
+          <input type="date" value={recurrence.endDate}
+            onChange={(e) => setRecurrence(r => r ? { ...r, endDate: e.target.value } : r)}
+            style={{ ...inputStyle, width: "150px", display: "inline-block" }}
+          />
+        </label>
+      </div>
+    </div>
+  )}
+</div>
+```
+
+### Update `buildPayload()` to include block data:
+```ts
+const buildPayload = () => {
+  const startDateTime = new Date(`${date}T${startTime}:00`);
+  const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+  return {
+    title: isBlock
+      ? (blockTitle || blockTypes.find(t => t.id === blockTypeId)?.name || "Internal Block")
+      : (selectedType?.name || "Appointment"),
+    isInternal: isBlock,
+    blockTypeId: isBlock ? (blockTypeId || null) : null,
+    appointmentTypeId: isBlock ? null : (appointmentTypeId || null),
+    subcategoryId: isBlock ? null : (subcategoryId || null),
+    patientId: isBlock ? null : (patientId || null),
+    opportunityId: isBlock ? null : (dealId || null),
+    providerId,
+    attendeeIds,
+    startTime: startDateTime.toISOString(),
+    endTime: endDateTime.toISOString(),
+    bufferMins,
+    roomName: room || null,
+    notes: notes || null,
+    ...(isBlock && recurrence ? { recurrence } : {}),
+  };
+};
+```
+
+### Update `handleSubmit()` for recurring blocks:
+If `isBlock && recurrence` is set in the payload, after a successful POST response `data` may contain `{ appointments: Appointment[], count: number }`. Show a brief success toast: "Created [N] recurring blocks" and close. If count is 1, close normally.
+
+### API — `POST /api/appointments` update for recurring:
+
+Add a `blockTypeId` field to the appointment schema: in `prisma/schema.prisma`, add to the `Appointment` model:
+```prisma
+blockTypeId   String?
+blockType     InternalBlockType? @relation(fields: [blockTypeId], references: [id])
+```
+
+Add the inverse relation to `InternalBlockType`:
+```prisma
+appointments  Appointment[]
+```
+
+Run migration: `npx prisma migrate dev --name add_block_type_to_appointment`
+
+In `POST /api/appointments`, when `isInternal: true` and `recurrence` is provided:
+```ts
+if (body.isInternal && body.recurrence) {
+  const { frequency, customDays, endType, endAfter, endDate } = body.recurrence;
+
+  // Generate target dates
+  const dates: Date[] = [];
+  const baseStart = new Date(body.startTime);
+  const durationMs = new Date(body.endTime).getTime() - baseStart.getTime();
+  let current = new Date(baseStart);
+  const maxOccurrences = Math.min(endType === "after" ? endAfter : 52, 52);
+  const endDateLimit = endType === "date" && endDate ? new Date(endDate) : null;
+
+  while (dates.length < maxOccurrences) {
+    if (endDateLimit && current > endDateLimit) break;
+    const dayOfWeek = current.getDay();
+    const include =
+      frequency === "DAILY" ||
+      (frequency === "WEEKLY" && current.getTime() !== baseStart.getTime() ? dayOfWeek === baseStart.getDay() : true) ||
+      (frequency === "CUSTOM" && customDays.includes(dayOfWeek));
+    if (include || dates.length === 0) {
+      dates.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+    if (dates.length >= maxOccurrences) break;
+  }
+
+  // Create all blocks in a transaction
+  const appointments = await prisma.$transaction(
+    dates.map(d => {
+      const s = new Date(d);
+      const e = new Date(s.getTime() + durationMs);
+      return prisma.appointment.create({
+        data: {
+          practiceId: practice.id,
+          providerId: body.providerId,
+          createdById: user.id,
+          blockTypeId: body.blockTypeId || null,
+          title: body.title || "Internal Block",
+          isInternal: true,
+          startTime: s,
+          endTime: e,
+          bufferMins: body.bufferMins || 0,
+          appointmentCategory: "OTHER",
+          status: "CONFIRMED",
+          notes: body.notes || null,
+          roomName: body.roomName || null,
+        },
+      });
+    })
+  );
+
+  return NextResponse.json({ appointments, count: appointments.length }, { status: 201 });
+}
+```
+
+For non-recurring internal blocks (and all patient appointments), the existing single-create path continues unchanged — just add `blockTypeId: body.blockTypeId || null` to the `data` object.
+
+---
+
+## Change 5: Appointment History Drawer
+
+### Schema addition: `isRunningLate` field
+**This is the only schema change in PR-G2b.** Add to the `Appointment` model in `prisma/schema.prisma`:
+```prisma
+isRunningLate Boolean @default(false)
+```
+
+Run: `npx prisma migrate dev --name add_running_late_to_appointment`
+
+This field is used by PR-G2c (Running Late flag). Adding it now avoids a second migration.
+
+### New API route: `GET /api/appointments/[id]/history`
+
+Create `app/api/appointments/[id]/history/route.ts`:
+```ts
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { practice } = await requireUser();
+    const { id } = await params;
+
+    // Verify the appointment belongs to this practice
+    const appointment = await prisma.appointment.findFirst({
+      where: { id, practiceId: practice.id, deletedAt: null },
+    });
+    if (!appointment) {
+      return NextResponse.json({ error: "Appointment not found" }, { status: 404 });
+    }
+
+    const activities = await prisma.activity.findMany({
+      where: {
+        practiceId: practice.id,
+        metadata: {
+          path: ["appointmentId"],
+          equals: id,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    return NextResponse.json(activities);
+  } catch (error: any) {
+    if (error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+```
+
+### History drawer component
+
+Add state to `AppointmentsPage`:
+```ts
+const [historyDrawer, setHistoryDrawer] = useState<{ appointmentId: string } | null>(null);
+```
+
+Add a `HistoryDrawer` inline function component in `appointments/page.tsx`. Render it at the bottom of `AppointmentsPage`'s return when `historyDrawer !== null`:
+
+```tsx
+{historyDrawer && (
+  <HistoryDrawer
+    appointmentId={historyDrawer.appointmentId}
+    onClose={() => setHistoryDrawer(null)}
+  />
+)}
+```
+
+`HistoryDrawer` renders a right-side slide-in panel:
+- Fixed position, right: 0, top: 0, bottom: 0, `width: 360px`
+- Background: `var(--bg-primary)`, `box-shadow: -4px 0 24px rgba(0,0,0,0.12)`
+- `z-index: 200`
+- Backdrop: fixed inset 0, `rgba(0,0,0,0.2)`, click closes drawer
+- Header: "Appointment History" + × close button
+- Body: fetches from `/api/appointments/[appointmentId]/history` using TanStack Query
+- Renders a vertical timeline list
+
+**Timeline entry rendering:**
+
+Each activity item is a row with:
+- Left: colored event icon (16px lucide icon in a 28px circle)
+- Right: `body` text in `font-size: 13px`, `color: var(--text-primary)` + timestamp row below
+
+Event type → icon + color mapping (derive from `metadata.action`):
+| action | Icon | Color |
+|--------|------|-------|
+| appointment_created | PlusCircle | #10B981 |
+| appointment_updated | Pencil | #3B82F6 |
+| appointment_rescheduled | Clock | #F59E0B |
+| appointment_status_changed | ArrowRight | #8B5CF6 |
+| appointment_cancelled | XCircle | #EF4444 |
+| appointment_no_show | UserX | #F59E0B |
+| appointment_deleted | Trash2 | #EF4444 |
+| (default) | Activity | #94A3B8 |
+
+Timestamp row: relative time (e.g. "2 hours ago") + first name of the user who performed it. Relative time: `Math.round((Date.now() - new Date(activity.createdAt).getTime()) / 60000)` minutes → hours → days logic. Show absolute ISO string in a `title` attribute for hover tooltip.
+
+**Empty state:** "No history yet" in muted text.
+
+### "View History" button in popover
+
+In `AppointmentPopover`, in the footer row alongside "Edit Appointment" and "View Patient →", add left-aligned:
+```tsx
+<button
+  data-testid="popover-view-history"
+  onClick={() => {
+    onClose();
+    onViewHistory(appt.id);
+  }}
+  style={{
+    display: "flex", alignItems: "center", gap: "4px",
+    fontSize: "12px", fontWeight: 500, color: "var(--text-muted)",
+    background: "none", border: "none", cursor: "pointer",
+  }}
+>
+  <History size={13} /> View History
+</button>
+```
+
+Update `AppointmentPopover` props to accept `onViewHistory: (id: string) => void`.
+
+Update the `AppointmentPopover` call in `AppointmentsPage` to pass:
+```tsx
+onViewHistory={(id) => {
+  setPopover(null);
+  setHistoryDrawer({ appointmentId: id });
+}}
+```
+
+Import `History` from `lucide-react` at the top of the file.
+
+---
+
+## Delivery Checklist
+
+**Inline popover confirmations:**
+- [ ] Cancel button in popover opens inline confirmation (not BookingModal)
+- [ ] Cancel confirmation shows optional reason input
+- [ ] No Show button opens inline confirmation
+- [ ] Confirming either sends PATCH to `/api/appointments/[id]/status`
+- [ ] After confirm, popover closes and calendar refreshes
+- [ ] `handleStatusChange` accepts optional `reason` parameter
+
+**Multi-attendee:**
+- [ ] BookingModal shows "Primary Provider" + "Additional Attendees" fields
+- [ ] Attendee select filters out already-selected attendees and the primary provider
+- [ ] Selected attendees shown as removable avatar chips
+- [ ] `attendeeIds` included in POST and PATCH payloads
+- [ ] API creates/replaces `AppointmentAttendee` records correctly
+- [ ] GET `/api/appointments` includes `attendees` in response
+- [ ] Appointment blocks show stacked attendee avatars (max 3 + overflow)
+- [ ] Attendee's column shows the appointment at 85% opacity with person icon
+- [ ] Edit mode pre-populates attendee chips from existing records
+
+**Drag and drop:**
+- [ ] `DndContext` wraps both DayView and WeekView
+- [ ] Patient appointment blocks are draggable (cursor: grab)
+- [ ] Internal blocks are NOT draggable
+- [ ] `DragOverlay` shows floating block clone during drag
+- [ ] Time slots in both DayView and WeekView highlight green on hover while dragging
+- [ ] Dropping on same time/provider does nothing
+- [ ] Dropping on new time opens `RescheduleConfirmModal`
+- [ ] Modal shows patient name, type, from time, to time
+- [ ] Cancel on modal does nothing
+- [ ] Confirm on modal calls PATCH with new times, refreshes calendar
+- [ ] Multi-provider day view: dropping on a different provider column changes `providerId`
+- [ ] Week view: dropping on a different day column changes date
+
+**Internal blocks overhaul:**
+- [ ] Segmented "Patient Appointment / Internal Block" tabs replace old toggle
+- [ ] Switching tabs resets block-specific state
+- [ ] Block Type dropdown populates from `/api/settings/internal-block-types`
+- [ ] Block Title is optional; uses type name if blank
+- [ ] "Additional Attendees" field present on internal block form
+- [ ] "Manage block types" link opens settings page in new tab
+- [ ] "Repeat" checkbox reveals recurrence panel
+- [ ] Daily / Weekly / Custom Days frequency options render correctly
+- [ ] Custom Days shows day-of-week button grid
+- [ ] End after N occurrences and end by date both work (max 52 enforced)
+- [ ] On save with recurrence, API creates all instances
+- [ ] Response returns `{ count: N }` and modal shows "Created N recurring blocks"
+- [ ] `blockTypeId` field added to schema and migration runs
+
+**History drawer:**
+- [ ] `isRunningLate Boolean @default(false)` added to schema, migration runs
+- [ ] `GET /api/appointments/[id]/history` returns activity records scoped to practice
+- [ ] "View History" link visible in popover footer (History icon + text)
+- [ ] Clicking "View History" closes popover and opens history drawer
+- [ ] Drawer slides in from right with semi-transparent backdrop
+- [ ] Timeline entries render with correct icon and color per action type
+- [ ] Timestamps shown as relative time with absolute on hover
+- [ ] Empty state shown when no history exists
+- [ ] Clicking backdrop or × closes drawer
+
+**General:**
+- [ ] All existing functionality intact: day/week/agenda views, provider filter, navigation, new appointment button, hover status buttons on blocks
+- [ ] No TypeScript errors
+- [ ] No console errors
+
+## END OF PROMPT

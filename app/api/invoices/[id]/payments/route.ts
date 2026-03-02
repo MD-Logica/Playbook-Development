@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
+const Decimal = Prisma.Decimal;
 
 export async function POST(
   request: NextRequest,
@@ -57,7 +58,7 @@ export async function POST(
     const newAmountPaid = currentAmountPaid.plus(paymentAmount);
     const newBalanceDue = invoiceTotal.minus(newAmountPaid);
 
-    let newStatus = invoice.status;
+    let newStatus: string = invoice.status;
     if (newBalanceDue.lte(new Decimal(0))) {
       newStatus = "PAID";
     } else if (newAmountPaid.gt(new Decimal(0))) {
@@ -92,7 +93,7 @@ export async function POST(
           balanceDue: newBalanceDue.lt(new Decimal(0))
             ? new Decimal(0)
             : newBalanceDue,
-          status: newStatus,
+          status: newStatus as any,
           paidAt: newStatus === "PAID" ? new Date() : invoice.paidAt,
         },
       }),

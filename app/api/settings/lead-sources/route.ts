@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     if (error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error.message?.includes("No practice found")) {
+    if (error.message?.includes("No practice found") || error.message?.includes("No organization context found")) {
       return NextResponse.json({ error: "No practice found" }, { status: 404 });
     }
     console.error("GET /api/settings/lead-sources error:", error);
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     if (error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error.message?.includes("No practice found")) {
+    if (error.message?.includes("No practice found") || error.message?.includes("No organization context found")) {
       return NextResponse.json({ error: "No practice found" }, { status: 404 });
     }
     console.error("POST /api/settings/lead-sources error:", error);

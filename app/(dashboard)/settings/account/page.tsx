@@ -1182,7 +1182,7 @@ function SessionsSection({ session, clerk, user }: { session: any; clerk: any; u
     try {
       const targetSession = sessions.find((s: any) => s.id === sessionId);
       if (targetSession) {
-        await targetSession.revoke();
+        await (targetSession as any).revoke();
         setRevokedIds((prev) => new Set(prev).add(sessionId));
       }
     } catch {
@@ -1196,7 +1196,7 @@ function SessionsSection({ session, clerk, user }: { session: any; clerk: any; u
     try {
       const otherSessions = sessions.filter((s: any) => s.id !== session?.id);
       for (const s of otherSessions) {
-        await s.revoke();
+        await (s as any).revoke();
         setRevokedIds((prev) => new Set(prev).add(s.id));
       }
       setShowConfirmRevokeAll(false);

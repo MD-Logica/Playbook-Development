@@ -34,6 +34,11 @@ export async function GET(req: NextRequest) {
         provider: { select: { id: true, firstName: true, lastName: true } },
         configuredType: { select: { id: true, name: true, color: true, durationMins: true, bufferMins: true } },
         subcategory: { select: { id: true, name: true } },
+        attendees: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
       },
     });
 
@@ -66,6 +71,9 @@ export async function POST(req: NextRequest) {
       location,
       notes,
       roomName,
+      blockTypeId,
+      attendeeIds,
+      recurrence,
     } = body;
 
     if (!providerId || !startTime || !endTime) {
@@ -127,6 +135,68 @@ export async function POST(req: NextRequest) {
 
     const resolvedCategory = appointmentCategory || "OTHER";
 
+    if (isInternal && recurrence) {
+      const { frequency, customDays, endType, endAfter, endDate: recEndDate } = recurrence;
+      const dates: Date[] = [];
+      const baseStart = new Date(startTime);
+      const durationMs = new Date(endTime).getTime() - baseStart.getTime();
+      const current = new Date(baseStart);
+      const maxOccurrences = Math.min(endType === "after" ? endAfter : 52, 52);
+      const endDateLimit = endType === "date" && recEndDate ? new Date(recEndDate) : null;
+
+      while (dates.length < maxOccurrences) {
+        if (endDateLimit && current > endDateLimit) break;
+        const dayOfWeek = current.getDay();
+        const include =
+          frequency === "DAILY" ||
+          (frequency === "WEEKLY" && current.getTime() !== baseStart.getTime() ? dayOfWeek === baseStart.getDay() : true) ||
+          (frequency === "CUSTOM" && customDays.includes(dayOfWeek));
+        if (include || dates.length === 0) {
+          dates.push(new Date(current));
+        }
+        current.setDate(current.getDate() + 1);
+        if (dates.length >= maxOccurrences) break;
+      }
+
+      const appointments = await prisma.$transaction(
+        dates.map((d) => {
+          const s = new Date(d);
+          const e = new Date(s.getTime() + durationMs);
+          return prisma.appointment.create({
+            data: {
+              practiceId: practice.id,
+              providerId,
+              createdById: user.id,
+              blockTypeId: blockTypeId || null,
+              title: title || "Internal Block",
+              isInternal: true,
+              startTime: s,
+              endTime: e,
+              bufferMins: buffer,
+              appointmentCategory: "OTHER",
+              status: "CONFIRMED",
+              notes: notes || null,
+              roomName: roomName || null,
+            },
+          });
+        })
+      );
+
+      if (attendeeIds && attendeeIds.length > 0) {
+        await prisma.appointmentAttendee.createMany({
+          data: appointments.flatMap((appt: any) =>
+            attendeeIds.map((userId: string) => ({
+              appointmentId: appt.id,
+              userId,
+              isPrimary: false,
+            }))
+          ),
+        });
+      }
+
+      return NextResponse.json({ appointments, count: appointments.length }, { status: 201 });
+    }
+
     const appointment = await prisma.appointment.create({
       data: {
         practiceId: practice.id,
@@ -136,6 +206,7 @@ export async function POST(req: NextRequest) {
         createdById: user.id,
         appointmentTypeId: appointmentTypeId || null,
         subcategoryId: subcategoryId || null,
+        blockTypeId: blockTypeId || null,
         appointmentCategory: resolvedCategory,
         title: title || (isInternal ? "Internal Block" : "Appointment"),
         isInternal: isInternal || false,
@@ -152,8 +223,23 @@ export async function POST(req: NextRequest) {
         provider: { select: { id: true, firstName: true, lastName: true } },
         configuredType: { select: { id: true, name: true, color: true, durationMins: true, bufferMins: true } },
         subcategory: { select: { id: true, name: true } },
+        attendees: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
       },
     });
+
+    if (attendeeIds && attendeeIds.length > 0) {
+      await prisma.appointmentAttendee.createMany({
+        data: attendeeIds.map((userId: string) => ({
+          appointmentId: appointment.id,
+          userId,
+          isPrimary: false,
+        })),
+      });
+    }
 
     if (patientId) {
       await prisma.activity.create({

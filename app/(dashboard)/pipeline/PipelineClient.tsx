@@ -2481,7 +2481,7 @@ function DroppableColumn({
     id: stage.id,
     data: { type: "column" },
   });
-  const laneRef = useRef<HTMLDivElement>(null);
+  const laneRef = useRef<HTMLDivElement | null>(null);
   const [hasOverflow, setHasOverflow] = useState(false);
 
   useEffect(() => {
@@ -2658,7 +2658,7 @@ function ClosedColumnComponent({
   onReopen: (id: string) => void;
   colIdx: number;
 }) {
-  const laneRef = useRef<HTMLDivElement>(null);
+  const laneRef = useRef<HTMLDivElement | null>(null);
   const isWon = type === "won";
   const color = isWon ? "#10B981" : "#EF4444";
   const bgLight = isWon ? "#D1FAE5" : "#FEE2E2";

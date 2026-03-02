@@ -37,6 +37,11 @@ export async function GET(req: NextRequest) {
         provider: { select: { id: true, firstName: true, lastName: true } },
         configuredType: { select: { id: true, name: true, color: true } },
         subcategory: { select: { id: true, name: true } },
+        attendees: {
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
       },
     });
 

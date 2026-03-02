@@ -3,7 +3,9 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Plus, Check, X, Clock, MapPin, User as UserIcon, Calendar, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Check, X, Clock, MapPin, User as UserIcon, Calendar, Search, History, PlusCircle, Pencil, ArrowRight, XCircle, UserX as UserXIcon, Trash2, Activity } from "lucide-react";
+import { DndContext, DragEndEvent, DragStartEvent, DragOverlay, useDroppable, useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import BookingModal from "@/components/appointments/BookingModal";
 import { useRouter } from "next/navigation";
 
@@ -35,6 +37,7 @@ interface AppointmentData {
   provider: { id: string; firstName: string; lastName: string } | null;
   configuredType: { id: string; name: string; color: string; durationMins: number; bufferMins: number } | null;
   subcategory: { id: string; name: string } | null;
+  attendees: { id: string; user: { id: string; firstName: string; lastName: string } }[];
 }
 
 const HOUR_HEIGHT = 60;
@@ -128,6 +131,16 @@ function darkenColor(hex: string, amount: number): string {
   return `rgb(${Math.max(0, rgb.r - amount)}, ${Math.max(0, rgb.g - amount)}, ${Math.max(0, rgb.b - amount)})`;
 }
 
+function relativeTime(dateStr: string): string {
+  const mins = Math.round((Date.now() - new Date(dateStr).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
 const STATUS_NEXT: Record<string, { label: string; next: string; color: string }> = {
   CONFIRMED: { label: "Check In", next: "CHECKED_IN", color: "#10B981" },
   CHECKED_IN: { label: "Room", next: "ROOMED", color: "#3B82F6" },
@@ -162,6 +175,17 @@ export default function AppointmentsPage() {
   const [providerSearch, setProviderSearch] = useState("");
   const [bookingModal, setBookingModal] = useState<{ open: boolean; prefill?: BookingModalPrefill }>({ open: false });
   const [popover, setPopover] = useState<{ appt: AppointmentData; x: number; y: number } | null>(null);
+  const [historyDrawer, setHistoryDrawer] = useState<{ appointmentId: string } | null>(null);
+  const [rescheduleConfirm, setRescheduleConfirm] = useState<{
+    appointmentId: string;
+    patientName: string;
+    typeName: string;
+    fromTime: Date;
+    toTime: Date;
+    newProviderId?: string;
+    durationMins: number;
+  } | null>(null);
+  const [activeAppt, setActiveAppt] = useState<AppointmentData | null>(null);
   const queryClient = useQueryClient();
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -221,12 +245,12 @@ export default function AppointmentsPage() {
     queryClient.invalidateQueries({ queryKey: ["/api/appointments/agenda"] });
   }, [queryClient]);
 
-  const handleStatusChange = useCallback(async (appointmentId: string, newStatus: string) => {
+  const handleStatusChange = useCallback(async (appointmentId: string, newStatus: string, reason?: string) => {
     try {
       const res = await fetch(`/api/appointments/${appointmentId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: newStatus, ...(reason ? { reason } : {}) }),
       });
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
@@ -283,7 +307,10 @@ export default function AppointmentsPage() {
   const filteredAppointments = useMemo(() => {
     if (allSelected) return appointments;
     if (selectedProviders.length === 0) return [];
-    return appointments.filter(a => a.provider && selectedProviders.includes(a.provider.id));
+    return appointments.filter(a =>
+      (a.provider && selectedProviders.includes(a.provider.id)) ||
+      (a.attendees && a.attendees.some(att => selectedProviders.includes(att.user.id)))
+    );
   }, [appointments, selectedProviders, allSelected]);
 
   const goToday = () => {
@@ -348,6 +375,53 @@ export default function AppointmentsPage() {
           ? "No Providers"
           : `${sp.length} Providers`;
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const appt = filteredAppointments.find(a => a.id === event.active.id);
+    setActiveAppt(appt || null);
+  }, [filteredAppointments]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const draggedAppt = activeAppt;
+    setActiveAppt(null);
+    if (!event.over || !draggedAppt) return;
+
+    const overId = String(event.over.id);
+    if (!overId.startsWith("slot-")) return;
+
+    const parts = overId.split("-");
+    const isoDate = parts[1];
+    const hour = parseInt(parts[2]);
+    const minute = parseInt(parts[3]);
+    const newProviderId = parts[4] === "same" ? draggedAppt.provider?.id : parts[4];
+
+    const originalStart = new Date(draggedAppt.startTime);
+    const originalEnd = new Date(draggedAppt.endTime);
+    const durationMins = Math.round((originalEnd.getTime() - originalStart.getTime()) / 60000);
+
+    const newStart = new Date(isoDate + "T00:00:00");
+    newStart.setHours(hour, minute, 0, 0);
+
+    if (
+      newStart.getTime() === originalStart.getTime() &&
+      newProviderId === draggedAppt.provider?.id
+    ) return;
+
+    const patientName = draggedAppt.patient
+      ? `${draggedAppt.patient.firstName} ${draggedAppt.patient.lastName}`
+      : draggedAppt.title;
+    const typeName = draggedAppt.configuredType?.name || draggedAppt.appointmentCategory;
+
+    setRescheduleConfirm({
+      appointmentId: draggedAppt.id,
+      patientName,
+      typeName,
+      fromTime: originalStart,
+      toTime: newStart,
+      newProviderId,
+      durationMins,
+    });
+  }, [activeAppt]);
+
   return (
     <div data-testid="page-appointments" style={{ display: "flex", flexDirection: "column", height: "100%", margin: "-28px -32px", overflow: "hidden", backgroundColor: "#f4f6f8" }}>
       <div
@@ -387,41 +461,23 @@ export default function AppointmentsPage() {
               data-testid="button-provider-filter"
               onClick={() => setProviderPickerOpen(!providerPickerOpen)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "5px 12px 5px 4px",
-                fontSize: "12px",
-                fontWeight: 500,
-                color: "#64748b",
-                backgroundColor: "#ffffff",
-                border: "1px solid #e2e8f0",
-                borderRadius: "8px",
-                cursor: "pointer",
-                height: "34px",
+                display: "flex", alignItems: "center", gap: "8px",
+                padding: "5px 12px 5px 4px", fontSize: "12px", fontWeight: 500,
+                color: "#64748b", backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0", borderRadius: "8px",
+                cursor: "pointer", height: "34px",
               }}
             >
               <div style={{ display: "flex", alignItems: "center" }}>
                 {(allSelected ? providers.slice(0, 3) : providers.filter(p => sp.includes(p.id)).slice(0, 3)).map((p, i) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      width: "26px",
-                      height: "26px",
-                      borderRadius: "50%",
-                      backgroundColor: getProviderColor(providers.indexOf(p)),
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "9px",
-                      fontWeight: 700,
-                      color: "#fff",
-                      marginLeft: i > 0 ? "-8px" : "0",
-                      border: "2px solid #fff",
-                      position: "relative",
-                      zIndex: 3 - i,
-                    }}
-                  >
+                  <div key={p.id} style={{
+                    width: "26px", height: "26px", borderRadius: "50%",
+                    backgroundColor: getProviderColor(providers.indexOf(p)),
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "9px", fontWeight: 700, color: "#fff",
+                    marginLeft: i > 0 ? "-8px" : "0",
+                    border: "2px solid #fff", position: "relative", zIndex: 3 - i,
+                  }}>
                     {getInitials(p.firstName, p.lastName)}
                   </div>
                 ))}
@@ -429,21 +485,12 @@ export default function AppointmentsPage() {
               <span>{providerLabel}</span>
             </button>
             {providerPickerOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "100%",
-                  right: 0,
-                  marginTop: "4px",
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "12px",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
-                  width: "280px",
-                  zIndex: 50,
-                  overflow: "hidden",
-                }}
-              >
+              <div style={{
+                position: "absolute", top: "100%", right: 0, marginTop: "4px",
+                backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)",
+                width: "280px", zIndex: 50, overflow: "hidden",
+              }}>
                 <div style={{ padding: "8px 10px", borderBottom: "1px solid #f1f5f9" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 8px", backgroundColor: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                     <Search size={13} color="#94a3b8" />
@@ -457,44 +504,22 @@ export default function AppointmentsPage() {
                   </div>
                 </div>
                 <div style={{ padding: "4px 8px", display: "flex", justifyContent: "space-between", borderBottom: "1px solid #f1f5f9" }}>
-                  <button
-                    data-testid="button-select-all-providers"
-                    onClick={() => setSelectedProviders(null)}
-                    style={{ fontSize: "11px", fontWeight: 600, color: allSelected ? "#10b981" : "#64748b", background: "none", border: "none", cursor: "pointer", padding: "4px" }}
-                  >
+                  <button data-testid="button-select-all-providers" onClick={() => setSelectedProviders(null)}
+                    style={{ fontSize: "11px", fontWeight: 600, color: allSelected ? "#10b981" : "#64748b", background: "none", border: "none", cursor: "pointer", padding: "4px" }}>
                     Select All
                   </button>
-                  <button
-                    data-testid="button-clear-providers"
-                    onClick={() => setSelectedProviders([])}
-                    style={{ fontSize: "11px", fontWeight: 600, color: !allSelected && sp.length === 0 ? "#94a3b8" : "#64748b", background: "none", border: "none", cursor: "pointer", padding: "4px" }}
-                  >
+                  <button data-testid="button-clear-providers" onClick={() => setSelectedProviders([])}
+                    style={{ fontSize: "11px", fontWeight: 600, color: !allSelected && sp.length === 0 ? "#94a3b8" : "#64748b", background: "none", border: "none", cursor: "pointer", padding: "4px" }}>
                     Clear All
                   </button>
                 </div>
                 <div style={{ maxHeight: "240px", overflowY: "auto", padding: "4px 0" }}>
-                  {filteredProviderList.map((p, idx) => {
+                  {filteredProviderList.map((p) => {
                     const isSelected = allSelected || sp.includes(p.id);
                     const provColor = getProviderColor(providers.indexOf(p));
                     return (
-                      <button
-                        key={p.id}
-                        data-testid={`provider-option-${p.id}`}
-                        onClick={() => toggleProvider(p.id)}
-                        style={{
-                          width: "100%",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          padding: "7px 12px",
-                          fontSize: "13px",
-                          border: "none",
-                          background: "none",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          color: "#1e293b",
-                        }}
-                      >
+                      <button key={p.id} data-testid={`provider-option-${p.id}`} onClick={() => toggleProvider(p.id)}
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "7px 12px", fontSize: "13px", border: "none", background: "none", cursor: "pointer", textAlign: "left", color: "#1e293b" }}>
                         <div style={{
                           width: "16px", height: "16px", borderRadius: "4px",
                           border: isSelected ? "none" : "1.5px solid #cbd5e1",
@@ -524,46 +549,27 @@ export default function AppointmentsPage() {
 
           <div style={{ display: "flex", borderRadius: "8px", border: "1px solid #e2e8f0", overflow: "hidden" }}>
             {(["day", "week", "agenda"] as ViewMode[]).map((v) => (
-              <button
-                key={v}
-                data-testid={`view-${v}`}
-                onClick={() => setView(v)}
+              <button key={v} data-testid={`view-${v}`} onClick={() => setView(v)}
                 style={{
-                  padding: "6px 14px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
+                  padding: "6px 14px", fontSize: "12px", fontWeight: 600, border: "none", cursor: "pointer",
                   backgroundColor: view === v ? "#1e293b" : "#ffffff",
                   color: view === v ? "#fff" : "#64748b",
                   transition: "all 120ms ease",
                   borderRight: v !== "agenda" ? "1px solid #e2e8f0" : "none",
                   textTransform: "capitalize",
-                }}
-              >
+                }}>
                 {v}
               </button>
             ))}
           </div>
 
-          <button
-            data-testid="button-new-appointment"
-            onClick={openNewAppointment}
+          <button data-testid="button-new-appointment" onClick={openNewAppointment}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "7px 14px",
-              fontSize: "12px",
-              fontWeight: 600,
-              color: "#fff",
-              backgroundColor: "#10b981",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              boxShadow: "0 1px 3px rgba(16,185,129,0.3)",
-            }}
-          >
+              display: "flex", alignItems: "center", gap: "6px",
+              padding: "7px 14px", fontSize: "12px", fontWeight: 600,
+              color: "#fff", backgroundColor: "#10b981", border: "none", borderRadius: "8px",
+              cursor: "pointer", boxShadow: "0 1px 3px rgba(16,185,129,0.3)",
+            }}>
             <Plus size={14} strokeWidth={2.5} /> New Appointment
           </button>
         </div>
@@ -571,39 +577,62 @@ export default function AppointmentsPage() {
 
       <div style={{ flex: 1, overflow: "hidden", padding: "12px 16px 12px 16px" }}>
         <div style={{ height: "100%", backgroundColor: "#ffffff", borderRadius: "10px", border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {view === "day" && (
-            <DayView
-              date={currentDate}
-              appointments={filteredAppointments}
-              providers={displayProviders}
-              allProviders={providers}
-              selectedProviders={selectedProviders || []}
-              isLoading={isLoading}
-              onTimeSlotClick={openTimeSlot}
-              onAppointmentClick={openPopover}
-              onStatusChange={handleStatusChange}
-            />
-          )}
-          {view === "week" && (
-            <WeekView
-              weekStart={weekStart}
-              appointments={filteredAppointments}
-              onDayClick={switchToDayView}
-              isLoading={isLoading}
-              onTimeSlotClick={openTimeSlot}
-              onAppointmentClick={openPopover}
-              onStatusChange={handleStatusChange}
-              getApptsCountForDay={getApptsCountForDay}
-            />
-          )}
-          {view === "agenda" && (
-            <AgendaView
-              selectedProvider={effectiveProviderParam}
-              selectedProviders={selectedProviders || []}
-              onAppointmentClick={openPopover}
-              onStatusChange={handleStatusChange}
-            />
-          )}
+          <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            {view === "day" && (
+              <DayView
+                date={currentDate}
+                appointments={filteredAppointments}
+                providers={displayProviders}
+                allProviders={providers}
+                selectedProviders={selectedProviders || []}
+                isLoading={isLoading}
+                onTimeSlotClick={openTimeSlot}
+                onAppointmentClick={openPopover}
+                onStatusChange={handleStatusChange}
+              />
+            )}
+            {view === "week" && (
+              <WeekView
+                weekStart={weekStart}
+                appointments={filteredAppointments}
+                onDayClick={switchToDayView}
+                isLoading={isLoading}
+                onTimeSlotClick={openTimeSlot}
+                onAppointmentClick={openPopover}
+                onStatusChange={handleStatusChange}
+                getApptsCountForDay={getApptsCountForDay}
+              />
+            )}
+            {view === "agenda" && (
+              <AgendaView
+                selectedProvider={effectiveProviderParam}
+                selectedProviders={selectedProviders || []}
+                onAppointmentClick={openPopover}
+                onStatusChange={handleStatusChange}
+              />
+            )}
+            <DragOverlay>
+              {activeAppt && (
+                <div style={{
+                  width: "160px",
+                  backgroundColor: colorWithAlpha(getApptColor(activeAppt), 0.9),
+                  borderLeft: `3px solid ${getApptColor(activeAppt)}`,
+                  borderRadius: "6px",
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  color: "#1e293b",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+                  opacity: 0.9,
+                  cursor: "grabbing",
+                }}>
+                  {activeAppt.patient
+                    ? `${activeAppt.patient.firstName} ${activeAppt.patient.lastName}`
+                    : activeAppt.title}
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
         </div>
       </div>
 
@@ -621,6 +650,10 @@ export default function AppointmentsPage() {
               setPopover(null);
             }
           }}
+          onViewHistory={(id) => {
+            setPopover(null);
+            setHistoryDrawer({ appointmentId: id });
+          }}
           providers={providers}
         />
       )}
@@ -632,11 +665,64 @@ export default function AppointmentsPage() {
         prefill={bookingModal.prefill}
       />
 
+      {rescheduleConfirm && (
+        <RescheduleConfirmModal
+          confirm={rescheduleConfirm}
+          onCancel={() => setRescheduleConfirm(null)}
+          onConfirm={async () => {
+            const { appointmentId, toTime, durationMins, newProviderId } = rescheduleConfirm;
+            const newEnd = new Date(toTime.getTime() + durationMins * 60000);
+            await fetch(`/api/appointments/${appointmentId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                startTime: toTime.toISOString(),
+                endTime: newEnd.toISOString(),
+                ...(newProviderId ? { providerId: newProviderId } : {}),
+              }),
+            });
+            setRescheduleConfirm(null);
+            queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/appointments/agenda"] });
+          }}
+        />
+      )}
+
+      {historyDrawer && (
+        <HistoryDrawer
+          appointmentId={historyDrawer.appointmentId}
+          onClose={() => setHistoryDrawer(null)}
+        />
+      )}
+
       <style>{`
         @keyframes pulseGreen { 0%, 100% { border-left-color: #10B981; } 50% { border-left-color: #6EE7B7; } }
         @keyframes popoverIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         @keyframes statusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
+    </div>
+  );
+}
+
+function DroppableSlot({ id, style, children }: { id: string; style: React.CSSProperties; children?: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} style={{
+      ...style,
+      backgroundColor: isOver ? "rgba(16,185,129,0.08)" : style.backgroundColor,
+      transition: "background-color 100ms",
+    }}>
+      {isOver && (
+        <div style={{
+          position: "absolute", inset: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: "none",
+          fontSize: "10px", fontWeight: 600, color: "#10b981",
+        }}>
+          Drop to move
+        </div>
+      )}
+      {children}
     </div>
   );
 }
@@ -649,14 +735,7 @@ function TimeColumn() {
         const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
         const ampm = hour < 12 ? "AM" : "PM";
         return (
-          <div
-            key={hour}
-            style={{
-              height: `${HOUR_HEIGHT}px`,
-              position: "relative",
-              borderBottom: "1px solid #e2e8f0",
-            }}
-          >
+          <div key={hour} style={{ height: `${HOUR_HEIGHT}px`, position: "relative", borderBottom: "1px solid #e2e8f0" }}>
             {i > 0 && (
               <div style={{ position: "absolute", top: "-8px", right: "8px", textAlign: "right" }}>
                 <span style={{ fontSize: "12px", fontWeight: 500, color: "#94a3b8", lineHeight: 1 }}>{h12}</span>
@@ -683,54 +762,35 @@ function CurrentTimeLine({ showLabel }: { showLabel?: boolean }) {
   return (
     <>
       {showLabel && (
-        <div
-          style={{
-            position: "absolute",
-            top: `${top - 10}px`,
-            left: "-62px",
-            backgroundColor: "#10b981",
-            color: "#fff",
-            fontSize: "11px",
-            fontWeight: 700,
-            padding: "2px 8px",
-            borderRadius: "12px",
-            zIndex: 25,
-            whiteSpace: "nowrap",
-          }}
-        >
+        <div style={{
+          position: "absolute", top: `${top - 10}px`, left: "-62px",
+          backgroundColor: "#10b981", color: "#fff",
+          fontSize: "11px", fontWeight: 700, padding: "2px 8px",
+          borderRadius: "12px", zIndex: 25, whiteSpace: "nowrap",
+        }}>
           {formatTime12(now)}
         </div>
       )}
-      <div
-        style={{
-          position: "absolute",
-          top: `${top}px`,
-          left: showLabel ? "-6px" : "0",
-          right: "0",
-          height: "2px",
-          backgroundColor: "#ef4444",
-          zIndex: 20,
-        }}
-      />
+      <div style={{
+        position: "absolute", top: `${top}px`, left: showLabel ? "-6px" : "0", right: "0",
+        height: "2px", backgroundColor: "#ef4444", zIndex: 20,
+      }} />
       {showLabel && (
-        <div
-          style={{
-            position: "absolute",
-            top: `${top - 4}px`,
-            left: "-6px",
-            width: "8px",
-            height: "8px",
-            borderRadius: "50%",
-            backgroundColor: "#ef4444",
-            zIndex: 21,
-          }}
-        />
+        <div style={{
+          position: "absolute", top: `${top - 4}px`, left: "-6px",
+          width: "8px", height: "8px", borderRadius: "50%",
+          backgroundColor: "#ef4444", zIndex: 21,
+        }} />
       )}
     </>
   );
 }
 
-function HourGrid({ isWeekend: weekend, isToday: todayCol, onSlotClick }: { isWeekend?: boolean; isToday?: boolean; onSlotClick?: (hour: number, half: boolean) => void }) {
+function HourGridDroppable({ isWeekend: weekend, isToday: todayCol, onSlotClick, dateStr, providerId }: {
+  isWeekend?: boolean; isToday?: boolean;
+  onSlotClick?: (hour: number, half: boolean) => void;
+  dateStr: string; providerId: string;
+}) {
   return (
     <>
       {Array.from({ length: TOTAL_HOURS }, (_, i) => {
@@ -738,34 +798,32 @@ function HourGrid({ isWeekend: weekend, isToday: todayCol, onSlotClick }: { isWe
         const isOutside = hour < WORK_START || hour >= WORK_END;
         const bg = todayCol ? "rgba(16,185,129,0.03)" : weekend ? "#fafbfc" : isOutside ? "#fafbfc" : "transparent";
         return (
-          <div
-            key={hour}
-            style={{
-              height: `${HOUR_HEIGHT}px`,
-              borderBottom: "1px solid #e2e8f0",
-              backgroundColor: bg,
-              position: "relative",
-              cursor: onSlotClick ? "pointer" : "default",
-            }}
-          >
-            <div
-              style={{ position: "absolute", top: 0, left: 0, right: 0, height: "50%" }}
-              onClick={() => onSlotClick?.(hour, false)}
-            />
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: 0,
-                right: 0,
-                height: "1px",
-                borderTop: "1px dashed #f0f2f5",
-              }}
-            />
-            <div
-              style={{ position: "absolute", top: "50%", left: 0, right: 0, height: "50%" }}
-              onClick={() => onSlotClick?.(hour, true)}
-            />
+          <div key={hour} style={{ height: `${HOUR_HEIGHT}px`, borderBottom: "1px solid #e2e8f0", position: "relative" }}>
+            <DroppableSlot
+              id={`slot-${dateStr}-${hour}-0-${providerId}`}
+              style={{ position: "absolute", top: 0, left: 0, right: 0, height: "25%", backgroundColor: bg, cursor: onSlotClick ? "pointer" : "default" }}
+            >
+              <div style={{ position: "absolute", inset: 0 }} onClick={() => onSlotClick?.(hour, false)} />
+            </DroppableSlot>
+            <DroppableSlot
+              id={`slot-${dateStr}-${hour}-15-${providerId}`}
+              style={{ position: "absolute", top: "25%", left: 0, right: 0, height: "25%", backgroundColor: bg, cursor: onSlotClick ? "pointer" : "default" }}
+            >
+              <div style={{ position: "absolute", inset: 0 }} onClick={() => onSlotClick?.(hour, false)} />
+            </DroppableSlot>
+            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: "1px", borderTop: "1px dashed #f0f2f5", zIndex: 1, pointerEvents: "none" }} />
+            <DroppableSlot
+              id={`slot-${dateStr}-${hour}-30-${providerId}`}
+              style={{ position: "absolute", top: "50%", left: 0, right: 0, height: "25%", backgroundColor: bg, cursor: onSlotClick ? "pointer" : "default" }}
+            >
+              <div style={{ position: "absolute", inset: 0 }} onClick={() => onSlotClick?.(hour, true)} />
+            </DroppableSlot>
+            <DroppableSlot
+              id={`slot-${dateStr}-${hour}-45-${providerId}`}
+              style={{ position: "absolute", top: "75%", left: 0, right: 0, height: "25%", backgroundColor: bg, cursor: onSlotClick ? "pointer" : "default" }}
+            >
+              <div style={{ position: "absolute", inset: 0 }} onClick={() => onSlotClick?.(hour, true)} />
+            </DroppableSlot>
           </div>
         );
       })}
@@ -777,10 +835,14 @@ function AppointmentBlock({
   appt,
   onClick,
   onStatusChange,
+  draggable,
+  isAttendeeView,
 }: {
   appt: AppointmentData;
   onClick?: (appt: AppointmentData, event: ReactMouseEvent) => void;
   onStatusChange?: (id: string, status: string) => void;
+  draggable?: boolean;
+  isAttendeeView?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const start = new Date(appt.startTime);
@@ -803,19 +865,28 @@ function AppointmentBlock({
   const typeName = appt.configuredType?.name || appt.appointmentCategory;
 
   const nextStatus = STATUS_NEXT[appt.status];
-
   const statusDotColor = isCheckedIn ? "#10b981" : isRoomed ? "#3b82f6" : isNoShow ? "#ef4444" : null;
 
+  const canDrag = draggable && !isInternal;
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: appt.id,
+    disabled: !canDrag,
+  });
+
   if (isCancelled) return null;
+
+  const baseOpacity = isAttendeeView ? 0.85 : isEnded ? 0.7 : isCheckedOut ? 0.65 : isNoShow ? 0.5 : 1;
 
   return (
     <>
       <div
+        ref={canDrag ? setNodeRef : undefined}
         data-appointment-block="true"
         data-testid={`appointment-block-${appt.id}`}
         onClick={(e) => onClick?.(appt, e)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        {...(canDrag ? { ...attributes, ...listeners } : {})}
         style={{
           position: "absolute",
           top: `${top}px`,
@@ -824,17 +895,14 @@ function AppointmentBlock({
           height: `${height}px`,
           borderRadius: "6px",
           overflow: "hidden",
-          cursor: "pointer",
-          transition: "all 0.15s ease",
-          opacity: isEnded ? 0.7 : isCheckedOut ? 0.65 : isNoShow ? 0.5 : 1,
+          cursor: canDrag ? (isDragging ? "grabbing" : "grab") : "pointer",
+          transition: isDragging ? "none" : "all 0.15s ease",
+          opacity: isDragging ? 0.4 : baseOpacity,
           zIndex: hovered ? 15 : 10,
-          transform: hovered ? "translateY(-1px)" : "none",
+          transform: isDragging ? CSS.Translate.toString(transform) : hovered ? "translateY(-1px)" : "none",
           boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.12)" : "0 1px 3px rgba(0,0,0,0.08)",
           ...(isInternal
-            ? {
-                backgroundColor: "#f1f5f9",
-                borderLeft: "3px solid #94a3b8",
-              }
+            ? { backgroundColor: "#f1f5f9", borderLeft: "3px solid #94a3b8" }
             : {
                 backgroundColor: colorWithAlpha(color, 0.12),
                 borderLeft: `3px solid ${color}`,
@@ -843,6 +911,11 @@ function AppointmentBlock({
         }}
       >
         <div style={{ padding: isVeryShort ? "1px 6px" : isShort ? "3px 8px" : "5px 8px", position: "relative", height: "100%", display: "flex", flexDirection: "column" }}>
+          {isAttendeeView && (
+            <div style={{ position: "absolute", top: "3px", left: "3px" }}>
+              <UserIcon size={10} color="#94a3b8" />
+            </div>
+          )}
           {statusDotColor && (
             <div style={{
               position: "absolute", top: "5px", right: "5px", width: "8px", height: "8px", borderRadius: "50%",
@@ -899,6 +972,35 @@ function AppointmentBlock({
               <div style={{ fontSize: "11px", fontWeight: 500, color: isInternal ? "#94a3b8" : darkenColor(color, 30), marginTop: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {typeName}
               </div>
+              {appt.attendees && appt.attendees.length > 0 && (
+                <div style={{ display: "flex", marginTop: "3px" }}>
+                  {appt.attendees.slice(0, 3).map((att, i) => (
+                    <div key={att.id} style={{
+                      width: "16px", height: "16px", borderRadius: "50%",
+                      backgroundColor: getProviderColor(i + 1),
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "7px", fontWeight: 700, color: "#fff",
+                      border: "1px solid #fff",
+                      marginLeft: i > 0 ? "-4px" : "0",
+                      zIndex: appt.attendees.length - i,
+                      position: "relative",
+                    }}>
+                      {att.user.firstName[0]}{att.user.lastName[0]}
+                    </div>
+                  ))}
+                  {appt.attendees.length > 3 && (
+                    <div style={{
+                      width: "16px", height: "16px", borderRadius: "50%",
+                      backgroundColor: "#94a3b8",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "7px", fontWeight: 700, color: "#fff",
+                      border: "1px solid #fff", marginLeft: "-4px", position: "relative",
+                    }}>
+                      +{appt.attendees.length - 3}
+                    </div>
+                  )}
+                </div>
+              )}
               {height > 55 && (
                 <div style={{ fontSize: "11px", fontWeight: 400, color: "#94a3b8", marginTop: "1px" }}>
                   {formatTime12(start)} – {formatTime12(end)}
@@ -908,35 +1010,18 @@ function AppointmentBlock({
           )}
 
           {hovered && nextStatus && onStatusChange && height > 30 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                display: "flex",
-                justifyContent: "center",
-                padding: "3px 4px",
-                backgroundColor: "rgba(255,255,255,0.92)",
-                borderTop: "1px solid rgba(0,0,0,0.06)",
-              }}
-            >
+            <div style={{
+              position: "absolute", bottom: 0, left: 0, right: 0,
+              display: "flex", justifyContent: "center", padding: "3px 4px",
+              backgroundColor: "rgba(255,255,255,0.92)", borderTop: "1px solid rgba(0,0,0,0.06)",
+            }}>
               <button
                 data-testid={`button-status-${appt.id}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onStatusChange(appt.id, nextStatus.next);
-                }}
+                onClick={(e) => { e.stopPropagation(); onStatusChange(appt.id, nextStatus.next); }}
                 style={{
-                  fontSize: "10px",
-                  fontWeight: 700,
-                  color: "#fff",
-                  backgroundColor: nextStatus.color,
-                  border: "none",
-                  borderRadius: "4px",
-                  padding: "2px 10px",
-                  cursor: "pointer",
-                  lineHeight: "16px",
+                  fontSize: "10px", fontWeight: 700, color: "#fff",
+                  backgroundColor: nextStatus.color, border: "none", borderRadius: "4px",
+                  padding: "2px 10px", cursor: "pointer", lineHeight: "16px",
                 }}
               >
                 {nextStatus.label}
@@ -946,21 +1031,12 @@ function AppointmentBlock({
         </div>
       </div>
       {appt.bufferMins > 0 && !isCancelled && (
-        <div
-          style={{
-            position: "absolute",
-            top: `${top + height}px`,
-            left: "3px",
-            right: "5px",
-            height: `${(appt.bufferMins / 60) * HOUR_HEIGHT}px`,
-            borderRadius: "4px",
-            background: "repeating-linear-gradient(45deg, #f8fafc, #f8fafc 4px, #f1f5f9 4px, #f1f5f9 8px)",
-            zIndex: 9,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <div style={{
+          position: "absolute", top: `${top + height}px`, left: "3px", right: "5px",
+          height: `${(appt.bufferMins / 60) * HOUR_HEIGHT}px`, borderRadius: "4px",
+          background: "repeating-linear-gradient(45deg, #f8fafc, #f8fafc 4px, #f1f5f9 4px, #f1f5f9 8px)",
+          zIndex: 9, display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
           {appt.bufferMins >= 10 && (
             <span style={{ fontSize: "10px", color: "#cbd5e1", fontWeight: 500 }}>Buffer</span>
           )}
@@ -971,24 +1047,18 @@ function AppointmentBlock({
 }
 
 function AppointmentPopover({
-  appt,
-  x,
-  y,
-  onClose,
-  onEdit,
-  onStatusChange,
-  onViewPatient,
-  providers,
+  appt, x, y, onClose, onEdit, onStatusChange, onViewPatient, onViewHistory, providers,
 }: {
-  appt: AppointmentData;
-  x: number;
-  y: number;
-  onClose: () => void;
-  onEdit: () => void;
-  onStatusChange: (id: string, status: string) => void;
+  appt: AppointmentData; x: number; y: number;
+  onClose: () => void; onEdit: () => void;
+  onStatusChange: (id: string, status: string, reason?: string) => void;
   onViewPatient: () => void;
+  onViewHistory: (id: string) => void;
   providers: Provider[];
 }) {
+  const [confirmingStatus, setConfirmingStatus] = useState<"CANCELLED" | "NO_SHOW" | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+
   const color = getApptColor(appt);
   const start = new Date(appt.startTime);
   const end = new Date(appt.endTime);
@@ -1012,16 +1082,10 @@ function AppointmentPopover({
         data-popover="true"
         onClick={(e) => e.stopPropagation()}
         style={{
-          position: "fixed",
-          left: `${x}px`,
-          top: `${y}px`,
-          width: "320px",
-          backgroundColor: "#ffffff",
-          borderRadius: "12px",
+          position: "fixed", left: `${x}px`, top: `${y}px`, width: "320px",
+          backgroundColor: "#ffffff", borderRadius: "12px",
           boxShadow: "0 8px 32px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08)",
-          overflow: "hidden",
-          animation: "popoverIn 80ms ease-out",
-          zIndex: 101,
+          overflow: "hidden", animation: "popoverIn 80ms ease-out", zIndex: 101,
         }}
       >
         <div style={{ height: "4px", backgroundColor: color }} />
@@ -1055,50 +1119,125 @@ function AppointmentPopover({
 
           {statusActions.length > 0 && (
             <div style={{ borderTop: "1px solid #f1f5f9", marginTop: "12px", paddingTop: "10px" }}>
-              <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>Status Actions</div>
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                {statusActions.map((action) => (
-                  <button
-                    key={action.status}
-                    data-testid={`popover-status-${action.status}`}
-                    onClick={() => onStatusChange(appt.id, action.status)}
+              {confirmingStatus === "CANCELLED" ? (
+                <div style={{ background: "var(--bg-secondary, #f8fafc)", borderRadius: "8px", padding: "12px", marginTop: "8px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1e293b", marginBottom: "8px" }}>Cancel this appointment?</div>
+                  <input
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Reason (optional)"
                     style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      padding: "4px 10px",
-                      borderRadius: "6px",
-                      border: action.variant === "primary" ? "none" : `1px solid ${action.variant === "danger" ? "#fecaca" : "#e2e8f0"}`,
-                      backgroundColor: action.variant === "primary" ? action.color : action.variant === "danger" ? "#fef2f2" : "#f8fafc",
-                      color: action.variant === "primary" ? "#fff" : action.variant === "danger" ? "#ef4444" : "#64748b",
-                      cursor: "pointer",
+                      width: "100%", padding: "6px 10px", fontSize: "12px",
+                      border: "1px solid #e2e8f0", borderRadius: "6px",
+                      outline: "none", marginBottom: "8px",
                     }}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
+                  />
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={() => {
+                        onStatusChange(appt.id, "CANCELLED", cancelReason || undefined);
+                        setConfirmingStatus(null);
+                        setCancelReason("");
+                      }}
+                      style={{
+                        flex: 1, fontSize: "11px", fontWeight: 600, padding: "5px 10px", borderRadius: "6px",
+                        border: "none", backgroundColor: "#ef4444", color: "#fff", cursor: "pointer",
+                      }}>
+                      Yes, Cancel
+                    </button>
+                    <button
+                      onClick={() => { setConfirmingStatus(null); setCancelReason(""); }}
+                      style={{
+                        flex: 1, fontSize: "11px", fontWeight: 600, padding: "5px 10px", borderRadius: "6px",
+                        border: "1px solid #e2e8f0", backgroundColor: "#f8fafc", color: "#64748b", cursor: "pointer",
+                      }}>
+                      Go Back
+                    </button>
+                  </div>
+                </div>
+              ) : confirmingStatus === "NO_SHOW" ? (
+                <div style={{ background: "var(--bg-secondary, #f8fafc)", borderRadius: "8px", padding: "12px", marginTop: "8px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1e293b", marginBottom: "8px" }}>Mark as no-show?</div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={() => {
+                        onStatusChange(appt.id, "NO_SHOW");
+                        setConfirmingStatus(null);
+                      }}
+                      style={{
+                        flex: 1, fontSize: "11px", fontWeight: 600, padding: "5px 10px", borderRadius: "6px",
+                        border: "none", backgroundColor: "#f59e0b", color: "#fff", cursor: "pointer",
+                      }}>
+                      Yes, No-Show
+                    </button>
+                    <button
+                      onClick={() => setConfirmingStatus(null)}
+                      style={{
+                        flex: 1, fontSize: "11px", fontWeight: 600, padding: "5px 10px", borderRadius: "6px",
+                        border: "1px solid #e2e8f0", backgroundColor: "#f8fafc", color: "#64748b", cursor: "pointer",
+                      }}>
+                      Go Back
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>Status Actions</div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    {statusActions.map((action) => (
+                      <button
+                        key={action.status}
+                        data-testid={`popover-status-${action.status}`}
+                        onClick={() => {
+                          if (action.status === "CANCELLED") {
+                            setConfirmingStatus("CANCELLED");
+                          } else if (action.status === "NO_SHOW") {
+                            setConfirmingStatus("NO_SHOW");
+                          } else {
+                            onStatusChange(appt.id, action.status);
+                          }
+                        }}
+                        style={{
+                          fontSize: "11px", fontWeight: 600, padding: "4px 10px", borderRadius: "6px",
+                          border: action.variant === "primary" ? "none" : `1px solid ${action.variant === "danger" ? "#fecaca" : "#e2e8f0"}`,
+                          backgroundColor: action.variant === "primary" ? action.color : action.variant === "danger" ? "#fef2f2" : "#f8fafc",
+                          color: action.variant === "primary" ? "#fff" : action.variant === "danger" ? "#ef4444" : "#64748b",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           <div style={{ borderTop: "1px solid #f1f5f9", marginTop: "12px", paddingTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <button
-              data-testid="popover-edit"
-              onClick={onEdit}
-              style={{
-                fontSize: "12px", fontWeight: 600, padding: "6px 14px", borderRadius: "6px",
-                border: "1px solid #e2e8f0", backgroundColor: "#fff", color: "#1e293b", cursor: "pointer",
-              }}
-            >
-              Edit Appointment
-            </button>
-            {appt.patient && (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <button
-                data-testid="popover-view-patient"
-                onClick={onViewPatient}
+                data-testid="popover-view-history"
+                onClick={() => { onClose(); onViewHistory(appt.id); }}
                 style={{
-                  fontSize: "12px", fontWeight: 500, color: "#10b981", background: "none", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: "4px",
+                  fontSize: "12px", fontWeight: 500, color: "#94a3b8",
+                  background: "none", border: "none", cursor: "pointer",
                 }}
               >
+                <History size={13} /> History
+              </button>
+              <button data-testid="popover-edit" onClick={onEdit}
+                style={{
+                  fontSize: "12px", fontWeight: 600, padding: "6px 14px", borderRadius: "6px",
+                  border: "1px solid #e2e8f0", backgroundColor: "#fff", color: "#1e293b", cursor: "pointer",
+                }}>
+                Edit
+              </button>
+            </div>
+            {appt.patient && (
+              <button data-testid="popover-view-patient" onClick={onViewPatient}
+                style={{ fontSize: "12px", fontWeight: 500, color: "#10b981", background: "none", border: "none", cursor: "pointer" }}>
                 View Patient →
               </button>
             )}
@@ -1119,22 +1258,12 @@ function PopoverRow({ icon, value }: { icon: React.ReactNode; value: string }) {
 }
 
 function DayView({
-  date,
-  appointments,
-  providers,
-  allProviders,
-  selectedProviders,
-  isLoading,
-  onTimeSlotClick,
-  onAppointmentClick,
-  onStatusChange,
+  date, appointments, providers, allProviders, selectedProviders, isLoading,
+  onTimeSlotClick, onAppointmentClick, onStatusChange,
 }: {
-  date: Date;
-  appointments: AppointmentData[];
-  providers: Provider[];
-  allProviders: Provider[];
-  selectedProviders: string[];
-  isLoading: boolean;
+  date: Date; appointments: AppointmentData[];
+  providers: Provider[]; allProviders: Provider[];
+  selectedProviders: string[]; isLoading: boolean;
   onTimeSlotClick?: (date: Date, startTime: string, providerId?: string) => void;
   onAppointmentClick?: (appt: AppointmentData, event: ReactMouseEvent) => void;
   onStatusChange?: (id: string, status: string) => void;
@@ -1142,6 +1271,7 @@ function DayView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const today = isToday(date);
   const weekend = isWeekend(date);
+  const dateStr = formatDateYMD(date);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1167,22 +1297,11 @@ function DayView({
             const provColor = getProviderColor(provIdx);
             const count = filteredAppts.filter(a => a.provider?.id === p.id).length;
             return (
-              <div
-                key={p.id}
-                style={{
-                  flex: 1,
-                  minWidth: "160px",
-                  padding: "10px 12px",
-                  textAlign: "center",
-                  borderLeft: i > 0 ? "1px solid #e8ecf0" : "none",
-                  height: "72px",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "4px",
-                }}
-              >
+              <div key={p.id} style={{
+                flex: 1, minWidth: "160px", padding: "10px 12px", textAlign: "center",
+                borderLeft: i > 0 ? "1px solid #e8ecf0" : "none",
+                height: "72px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "4px",
+              }}>
                 <div style={{
                   width: "36px", height: "36px", borderRadius: "50%", backgroundColor: provColor,
                   display: "flex", alignItems: "center", justifyContent: "center",
@@ -1209,7 +1328,10 @@ function DayView({
           <TimeColumn />
           {visibleProviders.map((provider, colIdx) => {
             const colAppts = provider
-              ? filteredAppts.filter((a) => a.provider?.id === provider.id)
+              ? filteredAppts.filter(
+                  (a) => a.provider?.id === provider.id ||
+                         a.attendees?.some(att => att.user.id === provider.id)
+                )
               : filteredAppts;
             const handleSlotClick = (hour: number, half: boolean) => {
               const mins = half ? 30 : 0;
@@ -1217,19 +1339,22 @@ function DayView({
               onTimeSlotClick?.(date, timeStr, provider?.id);
             };
             return (
-              <div
-                key={provider?.id || "single"}
-                style={{
-                  flex: 1,
-                  minWidth: showMultiCol ? "160px" : "auto",
-                  position: "relative",
-                  borderLeft: colIdx > 0 || showMultiCol ? "1px solid #e8ecf0" : "none",
-                }}
-              >
-                <HourGrid isWeekend={weekend} isToday={today} onSlotClick={handleSlotClick} />
+              <div key={provider?.id || "single"} style={{
+                flex: 1, minWidth: showMultiCol ? "160px" : "auto",
+                position: "relative",
+                borderLeft: colIdx > 0 || showMultiCol ? "1px solid #e8ecf0" : "none",
+              }}>
+                <HourGridDroppable isWeekend={weekend} isToday={today} onSlotClick={handleSlotClick} dateStr={dateStr} providerId={provider?.id || "same"} />
                 {today && <CurrentTimeLine showLabel={colIdx === 0} />}
                 {colAppts.map((appt) => (
-                  <AppointmentBlock key={appt.id} appt={appt} onClick={onAppointmentClick} onStatusChange={onStatusChange} />
+                  <AppointmentBlock
+                    key={appt.id}
+                    appt={appt}
+                    onClick={onAppointmentClick}
+                    onStatusChange={onStatusChange}
+                    draggable={true}
+                    isAttendeeView={provider ? appt.provider?.id !== provider.id : false}
+                  />
                 ))}
               </div>
             );
@@ -1246,19 +1371,10 @@ function DayView({
 }
 
 function WeekView({
-  weekStart,
-  appointments,
-  onDayClick,
-  isLoading,
-  onTimeSlotClick,
-  onAppointmentClick,
-  onStatusChange,
-  getApptsCountForDay,
+  weekStart, appointments, onDayClick, isLoading, onTimeSlotClick, onAppointmentClick, onStatusChange, getApptsCountForDay,
 }: {
-  weekStart: Date;
-  appointments: AppointmentData[];
-  onDayClick: (date: Date) => void;
-  isLoading: boolean;
+  weekStart: Date; appointments: AppointmentData[];
+  onDayClick: (date: Date) => void; isLoading: boolean;
   onTimeSlotClick?: (date: Date, startTime: string, providerId?: string) => void;
   onAppointmentClick?: (appt: AppointmentData, event: ReactMouseEvent) => void;
   onStatusChange?: (id: string, status: string) => void;
@@ -1303,49 +1419,24 @@ function WeekView({
           const weekend = isWeekend(day);
           const count = getApptsCountForDay(day);
           return (
-            <button
-              key={day.toISOString()}
-              data-testid={`week-day-header-${day.getDay()}`}
-              onClick={() => onDayClick(day)}
+            <button key={day.toISOString()} data-testid={`week-day-header-${day.getDay()}`} onClick={() => onDayClick(day)}
               style={{
-                flex: 1,
-                padding: "8px 4px 6px",
-                textAlign: "center",
-                cursor: "pointer",
+                flex: 1, padding: "8px 4px 6px", textAlign: "center", cursor: "pointer",
                 background: dayIsToday ? "rgba(16,185,129,0.04)" : "transparent",
-                border: "none",
-                borderLeft: "1px solid #e8ecf0",
-                height: "72px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "2px",
-              }}
-            >
-              <div style={{ fontSize: "11px", fontWeight: 600, color: weekend ? "#94a3b8" : "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                border: "none", borderLeft: "1px solid #e8ecf0",
+                height: "72px", display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center", gap: "2px",
+              }}>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 {day.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase()}
               </div>
-              <div
-                style={{
-                  fontSize: "24px",
-                  fontWeight: 700,
-                  color: dayIsToday ? "#fff" : "#1e293b",
-                  lineHeight: 1.2,
-                  ...(dayIsToday
-                    ? {
-                        display: "inline-flex",
-                        width: "34px",
-                        height: "34px",
-                        borderRadius: "50%",
-                        backgroundColor: "#10b981",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "18px",
-                      }
-                    : {}),
-                }}
-              >
+              <div style={{
+                fontSize: "24px", fontWeight: 700, color: dayIsToday ? "#fff" : "#1e293b", lineHeight: 1.2,
+                ...(dayIsToday ? {
+                  display: "inline-flex", width: "34px", height: "34px", borderRadius: "50%",
+                  backgroundColor: "#10b981", alignItems: "center", justifyContent: "center", fontSize: "18px",
+                } : {}),
+              }}>
                 {day.getDate()}
               </div>
               {count > 0 && (
@@ -1365,25 +1456,18 @@ function WeekView({
             const dayAppts = getApptsForDay(day);
             const weekend = isWeekend(day);
             const dayIsToday = isToday(day);
+            const dayStr = formatDateYMD(day);
             const handleSlotClick = (hour: number, half: boolean) => {
               const mins = half ? 30 : 0;
               const timeStr = `${String(hour).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
               onTimeSlotClick?.(day, timeStr);
             };
             return (
-              <div
-                key={day.toISOString()}
-                style={{
-                  flex: 1,
-                  position: "relative",
-                  borderLeft: "1px solid #e8ecf0",
-                  minWidth: 0,
-                }}
-              >
-                <HourGrid isWeekend={weekend} isToday={dayIsToday} onSlotClick={handleSlotClick} />
+              <div key={day.toISOString()} style={{ flex: 1, position: "relative", borderLeft: "1px solid #e8ecf0", minWidth: 0 }}>
+                <HourGridDroppable isWeekend={weekend} isToday={dayIsToday} onSlotClick={handleSlotClick} dateStr={dayStr} providerId="same" />
                 {dayIsToday && <CurrentTimeLine showLabel={false} />}
                 {dayAppts.map((appt) => (
-                  <AppointmentBlock key={appt.id} appt={appt} onClick={onAppointmentClick} onStatusChange={onStatusChange} />
+                  <AppointmentBlock key={appt.id} appt={appt} onClick={onAppointmentClick} onStatusChange={onStatusChange} draggable={true} />
                 ))}
               </div>
             );
@@ -1395,19 +1479,14 @@ function WeekView({
 }
 
 function AgendaView({
-  selectedProvider,
-  selectedProviders,
-  onAppointmentClick,
-  onStatusChange,
+  selectedProvider, selectedProviders, onAppointmentClick, onStatusChange,
 }: {
-  selectedProvider: string;
-  selectedProviders: string[];
+  selectedProvider: string; selectedProviders: string[];
   onAppointmentClick?: (appt: AppointmentData, event: ReactMouseEvent) => void;
   onStatusChange?: (id: string, status: string) => void;
 }) {
   const [days, setDays] = useState(30);
-
-  const { data: appointments = [], isLoading } = useQuery<AppointmentData[]>({
+  const { data: agendaItems = [], isLoading } = useQuery<AppointmentData[]>({
     queryKey: ["/api/appointments/agenda", selectedProvider, days],
     queryFn: async () => {
       const params = new URLSearchParams({ days: String(days) });
@@ -1418,69 +1497,45 @@ function AgendaView({
     },
   });
 
-  const filteredAppts = useMemo(() => {
-    let appts = appointments;
-    if (selectedProviders.length > 0) {
-      appts = appts.filter(a => a.provider && selectedProviders.includes(a.provider.id));
-    }
-    return appts;
-  }, [appointments, selectedProviders]);
+  const filteredItems = useMemo(() => {
+    if (selectedProviders.length === 0) return agendaItems;
+    return agendaItems.filter(a =>
+      (a.provider && selectedProviders.includes(a.provider.id)) ||
+      (a.attendees && a.attendees.some(att => selectedProviders.includes(att.user.id)))
+    );
+  }, [agendaItems, selectedProviders]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, AppointmentData[]>();
-    for (const appt of filteredAppts) {
-      const d = new Date(appt.startTime);
+    filteredItems.forEach(a => {
+      const d = new Date(a.startTime);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(appt);
-    }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredAppts]);
+      map.get(key)!.push(a);
+    });
+    return Array.from(map.entries());
+  }, [filteredItems]);
 
   if (isLoading) {
     return (
-      <div style={{ padding: "48px", textAlign: "center", color: "#94a3b8", fontSize: "13px", fontWeight: 500 }}>
-        Loading appointments...
-      </div>
-    );
-  }
-
-  if (grouped.length === 0) {
-    return (
-      <div style={{ padding: "64px", textAlign: "center" }}>
-        <p style={{ fontSize: "14px", color: "#cbd5e1", fontWeight: 500 }}>No upcoming appointments</p>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: "13px", color: "#94a3b8", fontWeight: 500 }}>Loading...</span>
       </div>
     );
   }
 
   return (
-    <div style={{ height: "100%", overflowY: "auto", padding: "16px 20px", backgroundColor: "#f4f6f8" }}>
-      {grouped.map(([dateKey, appts]) => {
-        const date = new Date(dateKey + "T12:00:00");
-        const todayDate = isToday(date);
+    <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+      {grouped.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px", color: "#cbd5e1", fontSize: "13px" }}>No upcoming appointments</div>
+      )}
+      {grouped.map(([dateKey, items]) => {
+        const dateObj = new Date(dateKey + "T12:00:00");
+        const dayLabel = isToday(dateObj) ? "Today" : dateObj.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         return (
-          <div key={dateKey} style={{ marginBottom: "20px" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                marginBottom: "8px",
-                padding: "2px 0",
-              }}
-            >
-              <span style={{
-                fontSize: "14px",
-                fontWeight: 700,
-                color: todayDate ? "#10b981" : "#1e293b",
-                whiteSpace: "nowrap",
-              }}>
-                {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                {todayDate && <span style={{ fontSize: "12px", fontWeight: 600, color: "#10b981", marginLeft: "8px" }}>Today</span>}
-              </span>
-              <div style={{ flex: 1, height: "1px", backgroundColor: "#e2e8f0" }} />
-            </div>
-            {appts.map((appt) => {
+          <div key={dateKey} style={{ marginBottom: "16px" }}>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#1e293b", marginBottom: "6px", padding: "4px 0", borderBottom: "1px solid #f1f5f9" }}>{dayLabel}</div>
+            {items.map((appt) => {
               const start = new Date(appt.startTime);
               const end = new Date(appt.endTime);
               const color = getApptColor(appt);
@@ -1488,22 +1543,13 @@ function AgendaView({
               const typeName = appt.configuredType?.name || appt.appointmentCategory;
               const nextStatus = STATUS_NEXT[appt.status];
               return (
-                <div
-                  key={appt.id}
-                  data-testid={`agenda-item-${appt.id}`}
-                  onClick={(e) => onAppointmentClick?.(appt, e)}
+                <div key={appt.id} data-testid={`agenda-item-${appt.id}`} onClick={(e) => onAppointmentClick?.(appt, e)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    padding: "12px 16px",
-                    borderRadius: "8px",
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #f1f5f9",
-                    borderLeft: `3px solid ${color}`,
-                    marginBottom: "6px",
-                    transition: "background-color 120ms ease",
-                    cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: "12px",
+                    padding: "12px 16px", borderRadius: "8px",
+                    backgroundColor: "#ffffff", border: "1px solid #f1f5f9",
+                    borderLeft: `3px solid ${color}`, marginBottom: "6px",
+                    transition: "background-color 120ms ease", cursor: "pointer",
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#f8fafc"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#ffffff"; }}
@@ -1535,24 +1581,13 @@ function AgendaView({
                   )}
                   <StatusBadge status={appt.status} />
                   {nextStatus && onStatusChange && (
-                    <button
-                      data-testid={`button-agenda-status-${appt.id}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onStatusChange(appt.id, nextStatus.next);
-                      }}
+                    <button data-testid={`button-agenda-status-${appt.id}`}
+                      onClick={(e) => { e.stopPropagation(); onStatusChange(appt.id, nextStatus.next); }}
                       style={{
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        color: "#fff",
-                        backgroundColor: nextStatus.color,
-                        border: "none",
-                        borderRadius: "4px",
-                        padding: "3px 10px",
-                        cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
+                        fontSize: "10px", fontWeight: 700, color: "#fff",
+                        backgroundColor: nextStatus.color, border: "none", borderRadius: "4px",
+                        padding: "3px 10px", cursor: "pointer", flexShrink: 0,
+                      }}>
                       {nextStatus.label}
                     </button>
                   )}
@@ -1563,24 +1598,123 @@ function AgendaView({
         );
       })}
       <div style={{ textAlign: "center", padding: "12px" }}>
-        <button
-          data-testid="button-load-more"
-          onClick={() => setDays((d) => d + 30)}
+        <button data-testid="button-load-more" onClick={() => setDays((d) => d + 30)}
           style={{
-            padding: "8px 20px",
-            fontSize: "12px",
-            fontWeight: 600,
-            color: "#10b981",
-            backgroundColor: "transparent",
-            border: "1px solid #d1fae5",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
+            padding: "8px 20px", fontSize: "12px", fontWeight: 600,
+            color: "#10b981", backgroundColor: "transparent",
+            border: "1px solid #d1fae5", borderRadius: "8px", cursor: "pointer",
+          }}>
           Load More
         </button>
       </div>
     </div>
+  );
+}
+
+function RescheduleConfirmModal({ confirm, onCancel, onConfirm }: {
+  confirm: { appointmentId: string; patientName: string; typeName: string; fromTime: Date; toTime: Date; durationMins: number };
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div style={{ backgroundColor: "#ffffff", borderRadius: "12px", padding: "24px", width: "400px", maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+        <div style={{ fontSize: "15px", fontWeight: 700, color: "#1e293b", marginBottom: "8px" }}>Reschedule Appointment?</div>
+        <div style={{ fontSize: "14px", color: "#64748b", marginBottom: "16px" }}>
+          {confirm.patientName} · {confirm.typeName}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "20px" }}>
+          <div style={{ fontSize: "13px", color: "#94a3b8" }}>
+            From: {confirm.fromTime.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {formatTime12(confirm.fromTime)}
+          </div>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: "#1e293b" }}>
+            → To: {confirm.toTime.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · {formatTime12(confirm.toTime)}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+          <button onClick={onCancel}
+            style={{ padding: "8px 16px", fontSize: "13px", fontWeight: 600, color: "#64748b", backgroundColor: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            style={{ padding: "8px 16px", fontSize: "13px", fontWeight: 600, color: "#fff", backgroundColor: "#10B981", border: "none", borderRadius: "6px", cursor: "pointer" }}>
+            Confirm Reschedule
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryDrawer({ appointmentId, onClose }: { appointmentId: string; onClose: () => void }) {
+  const { data: activities = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/appointments", appointmentId, "history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/appointments/${appointmentId}/history`);
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const ACTION_ICONS: Record<string, { Icon: any; color: string }> = {
+    appointment_created: { Icon: PlusCircle, color: "#10B981" },
+    appointment_updated: { Icon: Pencil, color: "#3B82F6" },
+    appointment_rescheduled: { Icon: Clock, color: "#F59E0B" },
+    appointment_status_changed: { Icon: ArrowRight, color: "#8B5CF6" },
+    appointment_cancelled: { Icon: XCircle, color: "#EF4444" },
+    appointment_no_show: { Icon: UserXIcon, color: "#F59E0B" },
+    appointment_deleted: { Icon: Trash2, color: "#EF4444" },
+  };
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.2)", zIndex: 200 }} onClick={onClose} />
+      <div style={{
+        position: "fixed", right: 0, top: 0, bottom: 0, width: "360px",
+        backgroundColor: "#ffffff", boxShadow: "-4px 0 24px rgba(0,0,0,0.12)",
+        zIndex: 201, display: "flex", flexDirection: "column",
+      }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ fontSize: "15px", fontWeight: 700, color: "#1e293b", margin: 0 }}>Appointment History</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: "4px" }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          {isLoading && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#94a3b8", fontSize: "13px" }}>Loading...</div>
+          )}
+          {!isLoading && activities.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#cbd5e1", fontSize: "13px" }}>No history yet</div>
+          )}
+          {activities.map((activity: any) => {
+            const metadata = activity.metadata || {};
+            const action = metadata.action || "";
+            const iconEntry = ACTION_ICONS[action] || { Icon: Activity, color: "#94A3B8" };
+            const IconComp = iconEntry.Icon;
+            return (
+              <div key={activity.id} style={{ display: "flex", gap: "12px", marginBottom: "16px" }}>
+                <div style={{
+                  width: "28px", height: "28px", borderRadius: "50%",
+                  backgroundColor: colorWithAlpha(iconEntry.color, 0.12),
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  <IconComp size={14} color={iconEntry.color} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "13px", color: "#1e293b", marginBottom: "2px" }}>{activity.body}</div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }} title={new Date(activity.createdAt).toISOString()}>
+                    {relativeTime(activity.createdAt)}
+                    {activity.user && ` · ${activity.user.firstName}`}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1600,33 +1734,18 @@ function StatusBadge({ status }: { status: string }) {
   };
   const s = styles[status] || styles.CONFIRMED;
   return (
-    <span
-      style={{
-        fontSize: "10px",
-        fontWeight: 600,
-        padding: "2px 8px",
-        borderRadius: "6px",
-        backgroundColor: s.bg,
-        color: s.color,
-        whiteSpace: "nowrap",
-        flexShrink: 0,
-      }}
-    >
+    <span style={{
+      fontSize: "10px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px",
+      backgroundColor: s.bg, color: s.color, whiteSpace: "nowrap", flexShrink: 0,
+    }}>
       {s.label}
     </span>
   );
 }
 
 const navBtnStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "5px 8px",
-  border: "1px solid #e2e8f0",
-  borderRadius: "6px",
-  backgroundColor: "#ffffff",
-  cursor: "pointer",
-  color: "#64748b",
-  fontSize: "13px",
-  fontWeight: 500,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  padding: "5px 8px", border: "1px solid #e2e8f0", borderRadius: "6px",
+  backgroundColor: "#ffffff", cursor: "pointer", color: "#64748b",
+  fontSize: "13px", fontWeight: 500,
 };

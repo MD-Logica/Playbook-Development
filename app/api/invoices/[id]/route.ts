@@ -13,7 +13,7 @@ export async function GET(
     const invoice = await prisma.invoice.findFirst({
       where: { id, practiceId: practice.id, deletedAt: null },
       include: {
-        patient: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, chartId: true } },
+        patient: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
         opportunity: { select: { id: true, title: true, pipelineId: true } },
         coordinator: { select: { id: true, firstName: true, lastName: true, email: true } },
         quote: { select: { id: true, quoteNumber: true, status: true } },

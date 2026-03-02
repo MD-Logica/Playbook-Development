@@ -73,7 +73,7 @@ export async function PATCH(
             opportunityId: deal.id,
             userId: adminUser.id,
             type: "NOTE",
-            content: `Deal reassigned from ${user.firstName} ${user.lastName} to ${targetUser.firstName} ${targetUser.lastName} due to staff deactivation`,
+            body: `Deal reassigned from ${user.firstName} ${user.lastName} to ${targetUser.firstName} ${targetUser.lastName} due to staff deactivation`,
             metadata: {
               action: "bulk_reassign",
               reason: "staff_deactivated",

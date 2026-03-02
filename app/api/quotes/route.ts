@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
         patientNotes: patientNotes || null,
         showComponents: showComponents ?? false,
         lineItems: {
-          create: processedItems.map(({ taxable, ...item }) => item),
+          create: processedItems.map(({ taxable: _taxable, ...item }: any) => item),
         },
       },
       include: {

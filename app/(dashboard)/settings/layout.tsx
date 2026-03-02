@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Tag, Zap, Users, Plug, GitBranch, Building2, ChevronDown, ChevronRight, ListTree, Syringe, Megaphone, UserCircle, DollarSign, FolderTree, Package, Receipt, CalendarClock, Clock } from "lucide-react";
+import { Tag, Zap, Users, Plug, GitBranch, Building2, ChevronDown, ChevronRight, ListTree, Syringe, Megaphone, UserCircle, DollarSign, FolderTree, Package, Receipt, CalendarClock, Clock, Activity, CheckSquare, Lock } from "lucide-react";
 
 interface NavItem {
   label: string;
@@ -39,8 +39,11 @@ const NAV_ITEMS: NavItem[] = [
     label: "Appointments",
     icon: CalendarClock,
     children: [
-      { label: "Appointment Types", href: "/settings/appointment-types", icon: CalendarClock },
-      { label: "Working Hours", href: "/settings/working-hours", icon: Clock, comingSoon: true },
+      { label: "Appointment Types",    href: "/settings/appointment-types",    icon: CalendarClock },
+      { label: "Appointment Statuses", href: "/settings/appointment-statuses", icon: Activity },
+      { label: "Readiness Indicators", href: "/settings/readiness-indicators", icon: CheckSquare },
+      { label: "Internal Block Types", href: "/settings/internal-block-types", icon: Lock },
+      { label: "Working Hours",        href: "/settings/working-hours",        icon: Clock, comingSoon: true },
     ],
   },
   { label: "Pipeline", href: "/settings/pipeline", icon: GitBranch },
